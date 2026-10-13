@@ -1,0 +1,16 @@
+{
+  "name": "kaushik-nursery-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Premium botanical frontend for Kaushik Nursery",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node --check public/app.js && node --check public/data.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
