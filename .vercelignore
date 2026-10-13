@@ -1,0 +1,10 @@
+.git/
+node_modules/
+dist/
+.vercel/
+.openai/
+kaushik-nursery/
+output/
+tmp/
+.env
+.env.*
