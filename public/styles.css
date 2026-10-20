@@ -753,7 +753,7 @@ button:disabled {
   margin: 0;
 }
 .plant-section {
-  padding: 76px 0;
+  padding: 76px clamp(20px, 4.5vw, 60px);
 }
 .product-grid {
   display: grid;
@@ -2640,7 +2640,7 @@ button:disabled {
     line-height: 1.8;
   }
   .plant-section {
-    padding: 48px 0;
+    padding: 48px clamp(12px, 3vw, 24px);
   }
   .product-grid {
     grid-template-columns: 1fr 1fr;
