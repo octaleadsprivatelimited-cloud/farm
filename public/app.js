@@ -417,7 +417,7 @@ function shell(kind) {
   let roleLabel = isCustomer ? "CUSTOMER PORTAL" : partner ? "SERVICE PARTNER" : "SUPER ADMIN SYSTEM CONTROL";
   let statusBadge = isCustomer ? (state.user ? "Verified Member" : "Guest Account") : partner ? p.status : "Super Admin";
 
-  return `<main class="workspace-shell">
+  return `<main class="workspace-shell workspace-shell-${kind}">
     <aside class="workspace-sidebar">
       <div class="sidebar-profile">
         <div class="avatar">${avatarLabel}</div>
@@ -426,7 +426,11 @@ function shell(kind) {
         ${tag(statusBadge)}
       </div>
       ${tabs.map(([id, ic, label]) => `<button class="sidebar-item ${workspaceTab === id ? "active" : ""}" data-action="workspace-tab" data-id="${id}">${icon(ic)}${label}</button>`).join("")}
-      ${!isCustomer && !partner ? `<button class="sidebar-item" data-action="super-admin-lock" style="margin-top:15px;color:#c04b4b">${icon("logout")}Lock Super Admin</button>` : ""}
+      ${!isCustomer && !partner ? `
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #dce3d4;display:flex;flex-direction:column;gap:6px">
+          <a href="#home" class="sidebar-item" style="color:var(--forest)">${icon("arrow")} Back to Store</a>
+          <button class="sidebar-item" data-action="super-admin-lock" style="color:#c04b4b">${icon("logout")}Lock Super Admin</button>
+        </div>` : ""}
       <div class="workspace-note">
         ${isCustomer ? "CUSTOMER SELF-SERVICE<br>Track your plant orders, garden appointments, and addresses." : "ENTERPRISE CONTROL<br>Manage entire platform operations, partner allocations, and Razorpay reconciliations."}
       </div>
@@ -669,8 +673,9 @@ function partnersTable(partners) {
 }
 function render(scroll = false) {
   observer?.disconnect();
+  const isSuperAdminRoute = route === "super-admin" || route === "admin";
   $("#app").innerHTML =
-    header() +
+    (isSuperAdminRoute ? "" : header()) +
     (
       {
         home,
@@ -683,7 +688,7 @@ function render(scroll = false) {
         "customer-admin": () => shell("customer-admin"),
       }[route] || home
     )() +
-    footer();
+    (isSuperAdminRoute ? "" : footer());
   if (scroll) window.scrollTo({ top: 0, behavior: "instant" });
   observer = new IntersectionObserver(
     (entries) =>
