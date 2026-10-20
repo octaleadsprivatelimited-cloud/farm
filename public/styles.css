@@ -948,52 +948,73 @@ button:disabled {
   font-size: 11px;
 }
 .site-footer {
-  background: #f0f2e9;
-  padding-top: 44px;
+  background: #edf1e4;
+  border-top: 1px solid #d8dfcd;
+  padding-top: 56px;
+  color: #244131;
 }
 .footer-grid {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 36px;
-  padding-bottom: 38px;
+  grid-template-columns: 2fr 1.1fr 1.1fr 1.2fr;
+  gap: 40px;
+  padding-bottom: 44px;
 }
 .footer-brand p {
-  font-size: 10px;
-  max-width: 240px;
-  color: #7c8672;
-  margin-top: 17px;
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 290px;
+  color: #496350;
+  margin-top: 16px;
 }
 .footer-col h4 {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
-  margin-bottom: 18px;
+  letter-spacing: 0.04em;
+  color: #173b2d;
+  margin-bottom: 16px;
+  text-transform: uppercase;
 }
 .footer-col a,
 .footer-col button {
   display: block;
-  font-size: 9px;
-  color: #7f8976;
-  padding: 5px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #3b5a45;
+  padding: 6px 0;
   text-align: left;
+  line-height: 1.5;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.footer-col a:hover,
+.footer-col button:hover {
+  color: #153e2e;
+  transform: translateX(2px);
 }
 .footer-bottom {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 20px;
-  border-top: 1px solid #dde3d3;
-  padding: 19px 0;
-  font-size: 8px;
-  color: #849077;
+  border-top: 1px solid #d4dec8;
+  padding: 22px 0;
+  font-size: 12px;
+  color: #556c5c;
 }
 .footer-bottom button {
-  font-size: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #244d38;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  transition: color 0.2s ease;
+}
+.footer-bottom button:hover {
+  color: #0f2e1f;
 }
 .footer-bottom .icon {
-  width: 11px;
-  height: 11px;
+  width: 15px;
+  height: 15px;
 }
 .page-head {
   padding: 48px 0 30px;
@@ -2709,28 +2730,38 @@ button:disabled {
     font-size: 9px;
   }
   .site-footer {
-    padding-top: 32px;
+    padding-top: 40px;
   }
   .footer-grid {
     grid-template-columns: 1fr 1fr;
-    gap: 25px;
+    gap: 32px 24px;
   }
   .footer-brand {
     grid-column: 1/-1;
   }
-  .footer-col:last-child {
-    display: block;
+  .footer-col h4 {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .footer-col a,
+  .footer-col button {
+    font-size: 12px;
+    padding: 6px 0;
   }
   .footer-col:nth-child(4) {
-    display: none;
+    display: block;
   }
   .footer-bottom {
-    display: block;
-    line-height: 1.8;
-    font-size: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    line-height: 1.6;
+    font-size: 11px;
+    padding: 20px 0;
   }
   .footer-bottom button {
-    margin-top: 8px;
+    margin-top: 4px;
+    font-size: 11px;
   }
   .page-head {
     padding-top: 31px;
