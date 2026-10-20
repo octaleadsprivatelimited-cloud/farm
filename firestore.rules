@@ -1,0 +1,414 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Project: kaushiknursery-71d68 (Kaushik Nursery)
+    //
+    // 1. Collection: 'orders'
+    //    Document ID: Order ID string (e.g., 'NP-1001')
+    //    Fields:
+    //      - id: string (required, 1-64 chars)
+    //      - name: string (required, 1-100 chars, customer contact name)
+    //      - phone: string (required, 6-25 chars)
+    //      - address: string (required, 3-300 chars)
+    //      - items: list (required, 1-100 items)
+    //      - total: number (required, >= 0, <= 10,000,000)
+    //      - status: string (required, enum: 'Order placed', 'Confirmed', 'Processing', 'Dispatched', 'Delivered', 'Cancelled')
+    //      - payment: string (required, 1-150 chars, e.g., 'Paid via Razorpay')
+    //      - razorpay: map (optional, razorpay details like orderId, paymentId, signature)
+    //      - created: number (optional, client epoch timestamp in ms)
+    //      - timestamp: string or timestamp (optional/required, ISO string or Firestore timestamp)
+    //      - customerUid: string (optional, UID of the authenticated customer)
+    //
+    // 2. Collection: 'leads'
+    //    Document ID: Lead/Booking ID string (e.g., 'KN-1042')
+    //    Fields:
+    //      - id: string (required, 1-64 chars)
+    //      - serviceId: string (required, 1-64 chars, e.g., 's1')
+    //      - serviceName: string (optional, 1-120 chars)
+    //      - package: string (required, 1-100 chars)
+    //      - price: number (required, >= 0, <= 10,000,000)
+    //      - customer: string (required, 1-100 chars)
+    //      - name: string (optional, 1-100 chars)
+    //      - phone: string (required, 6-25 chars)
+    //      - city: string (required, 1-100 chars)
+    //      - address: string (required, 3-300 chars)
+    //      - date: string (optional, 1-30 chars, scheduled booking date)
+    //      - time: string (optional, 1-20 chars, scheduled booking time)
+    //      - area: string or number (optional, area in sq ft)
+    //      - property: string (optional, 1-80 chars)
+    //      - description: string (optional, <= 1,000 chars)
+    //      - status: string (required, enum: 'Finding service partner', 'Service scheduled', 'Partner accepted', 'In progress', 'Completed', 'Cancelled', 'Request submitted')
+    //      - recipients: list of strings (optional, list of partner IDs receiving the lead, <= 30 items)
+    //      - declined: list of strings (optional, partner IDs that declined, <= 50 items)
+    //      - assigned: string or null (optional, assigned partner ID/UID, <= 64 chars)
+    //      - sample: bool (optional)
+    //      - created: number (optional, client epoch in ms)
+    //      - timestamp: string or timestamp (optional/required, ISO string or Firestore timestamp)
+    //      - customerUid: string (optional, UID of the authenticated customer)
+    //      - review: map (optional, customer review with rating and text)
+    //      - notes: string (optional, <= 1,000 chars, partner/admin notes)
+    //      - payment: string (optional, <= 100 chars)
+    //
+    // 3. Collection: 'users'
+    //    Document ID: Phone number (e.g., '+919876543210') or Firebase Auth UID
+    //    Fields:
+    //      - name: string (optional, 1-100 chars)
+    //      - phone: string (optional, 6-25 chars)
+    //      - email: string (optional, <= 120 chars, valid email format if present)
+    //      - city: string (optional, 1-100 chars)
+    //      - address: string (optional, <= 300 chars)
+    //      - uid: string (optional, Firebase Auth UID, <= 128 chars)
+    //      - role: string (optional, enum: 'customer', 'partner', 'admin')
+    //      - lastSeen: string or timestamp (optional)
+    //      - createdAt: string or timestamp (optional)
+    //
+    // 4. Collections: 'products' & 'services'
+    //    Document ID: Product/Service ID (e.g., 'p1', 's1')
+    //    Publicly readable catalog items. Created/updated/deleted strictly by Super Admins.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Global Helper Functions
+    // ===============================================================
+
+    // Check if the request is from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is a designated super admin via custom claims or verified bootstrap email
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'super_admin' ||
+        request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true ||
+        request.auth.token.email in [
+          'admin@kaushiknursery.com',
+          'support@kaushiknursery.com',
+          'kaushiknursery@gmail.com'
+        ]
+      );
+    }
+
+    // Check if user has an assigned partner claim or matches the partner ID
+    function isAssignedPartner(partnerId) {
+      return isAuthenticated() && (
+        request.auth.token.role == 'partner' ||
+        request.auth.uid == partnerId ||
+        request.auth.token.partnerId == partnerId
+      );
+    }
+
+    // Check phone number match between auth token and document phone
+    function isAuthPhone(phone) {
+      return isAuthenticated() && (
+        request.auth.token.phone_number == phone ||
+        (request.auth.token.firebase != null &&
+         request.auth.token.firebase.identities != null &&
+         request.auth.token.firebase.identities.phone != null &&
+         phone in request.auth.token.firebase.identities.phone)
+      );
+    }
+
+    // Email validation helper
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() <= 120 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Validate that document keys stay within permitted schema
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Ensure protected fields cannot be altered on update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // 1. Validator for Orders
+    function isValidOrder(data) {
+      return hasOnlyAllowedFields([
+               'id', 'name', 'phone', 'address', 'items', 'total',
+               'status', 'payment', 'razorpay', 'created', 'timestamp',
+               'customerUid'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 25 &&
+             data.address is string && data.address.size() >= 3 && data.address.size() <= 300 &&
+             data.items is list && data.items.size() >= 1 && data.items.size() <= 100 &&
+             data.total is number && data.total >= 0 && data.total <= 10000000 &&
+             data.status in ['Order placed', 'Confirmed', 'Processing', 'Dispatched', 'Delivered', 'Cancelled'] &&
+             data.payment is string && data.payment.size() <= 150 &&
+             (!('customerUid' in data) || (data.customerUid is string && data.customerUid.size() <= 128)) &&
+             (!('razorpay' in data) || data.razorpay is map) &&
+             (!('created' in data) || data.created is number) &&
+             (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 50) || data.timestamp is timestamp);
+    }
+
+    // Check if the current user is the owner/creator of the order
+    function isOrderOwner(data) {
+      return isAuthenticated() && (
+        ('customerUid' in data && data.customerUid == request.auth.uid) ||
+        ('phone' in data && isAuthPhone(data.phone))
+      );
+    }
+
+    // 2. Validator for Leads / Service Bookings
+    function isValidLead(data) {
+      return hasOnlyAllowedFields([
+               'id', 'serviceId', 'serviceName', 'package', 'price',
+               'customer', 'name', 'phone', 'city', 'address',
+               'date', 'time', 'area', 'property', 'description',
+               'status', 'recipients', 'declined', 'assigned',
+               'sample', 'created', 'timestamp', 'customerUid',
+               'review', 'notes', 'payment'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.serviceId is string && data.serviceId.size() >= 1 && data.serviceId.size() <= 64 &&
+             data.package is string && data.package.size() >= 1 && data.package.size() <= 100 &&
+             data.price is number && data.price >= 0 && data.price <= 10000000 &&
+             data.customer is string && data.customer.size() >= 1 && data.customer.size() <= 100 &&
+             data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 25 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 100 &&
+             data.address is string && data.address.size() >= 3 && data.address.size() <= 300 &&
+             data.status in ['Finding service partner', 'Service scheduled', 'Partner accepted', 'In progress', 'Completed', 'Cancelled', 'Request submitted'] &&
+             (!('serviceName' in data) || (data.serviceName is string && data.serviceName.size() <= 120)) &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
+             (!('date' in data) || (data.date is string && data.date.size() <= 30)) &&
+             (!('time' in data) || (data.time is string && data.time.size() <= 20)) &&
+             (!('area' in data) || (data.area is string && data.area.size() <= 30) || (data.area is number && data.area >= 0)) &&
+             (!('property' in data) || (data.property is string && data.property.size() <= 80)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+             (!('payment' in data) || (data.payment is string && data.payment.size() <= 100)) &&
+             (!('assigned' in data) || data.assigned == null || (data.assigned is string && data.assigned.size() <= 64)) &&
+             (!('recipients' in data) || (data.recipients is list && data.recipients.size() <= 30)) &&
+             (!('declined' in data) || (data.declined is list && data.declined.size() <= 50)) &&
+             (!('sample' in data) || data.sample is bool) &&
+             (!('review' in data) || data.review is map) &&
+             (!('customerUid' in data) || (data.customerUid is string && data.customerUid.size() <= 128)) &&
+             (!('created' in data) || data.created is number) &&
+             (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 50) || data.timestamp is timestamp);
+    }
+
+    // Check if the current user is the owner/creator of the lead
+    function isLeadOwner(data) {
+      return isAuthenticated() && (
+        ('customerUid' in data && data.customerUid == request.auth.uid) ||
+        ('phone' in data && isAuthPhone(data.phone))
+      );
+    }
+
+    // 3. Validator for Users
+    function isValidUser(data) {
+      return hasOnlyAllowedFields([
+               'name', 'phone', 'email', 'city', 'address',
+               'uid', 'role', 'lastSeen', 'createdAt'
+             ]) &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 25)) &&
+             (!('email' in data) || data.email == '' || isValidEmail(data.email)) &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() <= 128)) &&
+             (!('role' in data) || data.role in ['customer', 'partner', 'admin']) &&
+             (!('lastSeen' in data) || (data.lastSeen is string && data.lastSeen.size() <= 50) || data.lastSeen is timestamp) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50) || data.createdAt is timestamp);
+    }
+
+    // Check if user is accessing their own profile document (by UID or authenticated phone)
+    function isSelfUser(userDocId) {
+      return isAuthenticated() && (
+        request.auth.uid == userDocId ||
+        isAuthPhone(userDocId) ||
+        (resource != null && 'uid' in resource.data && resource.data.uid == request.auth.uid) ||
+        (resource != null && 'phone' in resource.data && isAuthPhone(resource.data.phone))
+      );
+    }
+
+    // 4. Validator for Products
+    function isValidProduct(data) {
+      return hasOnlyAllowedFields([
+               'id', 'name', 'category', 'price', 'oldPrice', 'image',
+               'badge', 'care', 'water', 'stock', 'description', 'timestamp'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+             data.price is number && data.price >= 0 && data.price <= 1000000 &&
+             data.stock is number && data.stock >= 0 &&
+             (!('oldPrice' in data) || (data.oldPrice is number && data.oldPrice >= 0)) &&
+             (!('image' in data) || (data.image is string && data.image.size() <= 255)) &&
+             (!('badge' in data) || (data.badge is string && data.badge.size() <= 80)) &&
+             (!('care' in data) || (data.care is string && data.care.size() <= 200)) &&
+             (!('water' in data) || (data.water is string && data.water.size() <= 200)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 50) || data.timestamp is timestamp);
+    }
+
+    // 5. Validator for Services
+    function isValidService(data) {
+      return hasOnlyAllowedFields([
+               'id', 'name', 'category', 'image', 'label', 'price',
+               'description', 'packages', 'timestamp'
+             ]) &&
+             data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+             data.price is number && data.price >= 0 && data.price <= 1000000 &&
+             data.packages is list && data.packages.size() <= 20 &&
+             (!('image' in data) || (data.image is string && data.image.size() <= 255)) &&
+             (!('label' in data) || (data.label is string && data.label.size() <= 100)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 50) || data.timestamp is timestamp);
+    }
+
+    // ===============================================================
+    // Root Rule: Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Collection Rules: 1. 'orders'
+    // ===============================================================
+    match /orders/{orderId} {
+      // Read allowed for customer who owns the order, authenticated users with access, or super admins
+      allow read: if isSuperAdmin() ||
+                     (resource != null && isOrderOwner(resource.data));
+
+      // Customer checkout: customer can create the order with initial status 'Order placed'
+      allow create: if isValidOrder(request.resource.data) &&
+                       request.resource.data.id == orderId &&
+                       request.resource.data.status == 'Order placed' &&
+                       (!isAuthenticated() ||
+                        !('customerUid' in request.resource.data) ||
+                        request.resource.data.customerUid == request.auth.uid);
+
+      // Status updates or refunds restricted strictly to nursery administration / super admin
+      allow update: if isSuperAdmin() &&
+                       isValidOrder(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id', 'items', 'total', 'created']);
+
+      // Delete restricted to super admin
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: 2. 'leads'
+    // ===============================================================
+    match /leads/{leadId} {
+      // Read allowed for customer, assigned service partner, or super admin
+      allow read: if isSuperAdmin() ||
+                     (resource != null && (
+                       isLeadOwner(resource.data) ||
+                       (resource.data.assigned != null && isAssignedPartner(resource.data.assigned))
+                     ));
+
+      // Public / authenticated customer service booking creation
+      allow create: if isValidLead(request.resource.data) &&
+                       request.resource.data.id == leadId &&
+                       request.resource.data.status in ['Finding service partner', 'Request submitted'] &&
+                       (!isAuthenticated() ||
+                        !('customerUid' in request.resource.data) ||
+                        request.resource.data.customerUid == request.auth.uid);
+
+      // Updates restricted to admin OR assigned partner
+      allow update: if isValidLead(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id', 'serviceId', 'package', 'price', 'created']) &&
+                       (
+                         // Super admin has full update rights
+                         isSuperAdmin() ||
+                         // Assigned partner can update progress status and add notes/declines
+                         (
+                           resource.data.assigned != null &&
+                           isAssignedPartner(resource.data.assigned) &&
+                           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'declined', 'payment']) &&
+                           request.resource.data.status in ['Partner accepted', 'In progress', 'Completed', 'Cancelled']
+                         )
+                       );
+
+      // Delete restricted to super admin
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: 3. 'users'
+    // ===============================================================
+    match /users/{userId} {
+      // User can read their own record; Super admin can read all user records
+      allow read: if isSuperAdmin() || isSelfUser(userId);
+
+      // User can create their own profile (cannot escalate role to admin)
+      allow create: if isAuthenticated() &&
+                       isValidUser(request.resource.data) &&
+                       (userId == request.auth.uid || isAuthPhone(userId)) &&
+                       (!('role' in request.resource.data) ||
+                        request.resource.data.role == 'customer' ||
+                        isSuperAdmin());
+
+      // User can update their own record (cannot change role without super admin privilege)
+      allow update: if isAuthenticated() &&
+                       isValidUser(request.resource.data) &&
+                       isSelfUser(userId) &&
+                       (
+                         isSuperAdmin() ||
+                         areImmutableFieldsUnchanged(['role', 'uid', 'createdAt'])
+                       );
+
+      // Deletion of user profile restricted to super admin
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: 4. 'products' & 'services'
+    // ===============================================================
+    match /products/{productId} {
+      // Public read for all visitors and customers
+      allow read: if true;
+
+      // Create, update, delete restricted to admin
+      allow create: if isSuperAdmin() &&
+                       isValidProduct(request.resource.data) &&
+                       request.resource.data.id == productId;
+
+      allow update: if isSuperAdmin() &&
+                       isValidProduct(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id']);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    match /services/{serviceId} {
+      // Public read for all visitors and customers
+      allow read: if true;
+
+      // Create, update, delete restricted to admin
+      allow create: if isSuperAdmin() &&
+                       isValidService(request.resource.data) &&
+                       request.resource.data.id == serviceId;
+
+      allow update: if isSuperAdmin() &&
+                       isValidService(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['id']);
+
+      allow delete: if isSuperAdmin();
+    }
+
+  }
+}

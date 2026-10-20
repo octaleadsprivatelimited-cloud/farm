@@ -12,5 +12,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "razorpay": "^2.9.8"
   }
 }

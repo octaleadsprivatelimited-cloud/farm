@@ -4,6 +4,8 @@ import {
   initialPartners,
   initialLeads,
 } from "./data.js";
+import { policies } from "./policies.js";
+import { firebaseService } from "./firebase.js";
 const $ = (q, root = document) => root.querySelector(q);
 const esc = (v) =>
   String(v ?? "").replace(
@@ -151,10 +153,10 @@ const tag = (text) =>
 const brand = () =>
   `<a href="#home" class="brand" aria-label="Kaushik Nursery home"><svg class="brand-icon" viewBox="0 0 40 42" fill="none"><path d="M8 30C4 14 19 4 34 5c1 14-10 27-26 25Z" fill="#d1dec1"/><path d="M7 36C11 25 18 17 28 10M13 25l1-12m5 5 12 1" stroke="#315239" stroke-width="1.6" stroke-linecap="round"/></svg><span class="brand-words">kaushik<span style="font-weight:400">.</span><small>NURSERY & GARDENS</small></span></a>`;
 function header() {
-  return `<div class="topline">A little greener. A lot better. <span></span> Plants & garden services, thoughtfully brought together.</div><header class="site-header"><div class="container header-inner">${brand()}<nav class="main-nav" aria-label="Main navigation"><a class="${route === "services" ? "active" : ""}" href="#services">Garden services</a><a class="${route === "shop" ? "active" : ""}" href="#shop">Our plants</a><a href="#home" data-scroll="how-it-works">How it works</a><a class="${route === "orders" ? "active" : ""}" href="#orders">My bookings</a></nav><div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}${esc(state.city)}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><div class="workspace"><button class="workspace-btn" data-action="workspace" aria-expanded="false">${route === "partner" ? "Partner" : route === "admin" ? "Admin" : "Explore"} ${icon("down")}</button><div class="workspace-menu hidden"><a href="#home">${icon("leaf")}Customer experience</a><a href="#partner">${icon("briefcase")}Partner workspace</a><a href="#admin">${icon("dashboard")}Admin workspace</a><button data-action="replay">${icon("replay")}Replay plant opening</button></div></div><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div></div></header>`;
+  return `<div class="topline">A little greener. A lot better. <span></span> Plants & garden services, thoughtfully brought together.</div><header class="site-header"><div class="container header-inner">${brand()}<nav class="main-nav" aria-label="Main navigation"><a class="${route === "services" ? "active" : ""}" href="#services">Garden services</a><a class="${route === "shop" ? "active" : ""}" href="#shop">Our plants</a><a class="${route === "customer-admin" ? "active" : ""}" href="#customer-admin">Customer Portal</a><a class="${route === "orders" ? "active" : ""}" href="#orders">My bookings</a></nav><div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}${esc(state.city)}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><div class="workspace"><button class="workspace-btn" data-action="workspace" aria-expanded="false">${route === "partner" ? "Partner" : route === "super-admin" || route === "admin" ? "Super Admin" : route === "customer-admin" ? "Customer Portal" : "Portals"} ${icon("down")}</button><div class="workspace-menu hidden"><a href="#home">${icon("leaf")}Customer Store</a><a href="#customer-admin">${icon("user")}Customer Portal</a><a href="#partner">${icon("briefcase")}Partner Workspace</a><a href="#super-admin">${icon("shield")}Super Admin Portal</a><button data-action="replay">${icon("replay")}Replay plant opening</button></div></div><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div></div></header>`;
 }
 function footer() {
-  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>More than plants. A little more life.<br>Thoughtful gardens, from the first leaf to the finishing touch.</p></div><div class="footer-col"><h4>A greener everyday</h4><a href="#services">Garden services</a><a href="#shop">Buy our products</a><a href="#orders">My orders & bookings</a><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Grow with us</h4><a href="#partner">Become a service partner</a><a href="#admin">Admin workspace</a><button data-action="app-info">Our Android experience</button><button data-action="support">Contact the nursery</button></div><div class="footer-col"><h4>The thoughtful details</h4><button data-action="legal" data-id="privacy">Privacy information</button><button data-action="legal" data-id="terms">Preview terms</button><button data-action="account">Your account</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery. Interactive frontend preview · Sample catalog & pricing · No real payments.</span><button data-action="replay">${icon("replay")}Replay the growing plant</button></div></div></footer>`;
+  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>More than plants. A little more life.<br>Thoughtful gardens, from the first leaf to the finishing touch.</p></div><div class="footer-col"><h4>A greener everyday</h4><a href="#services">Garden services</a><a href="#shop">Buy our products</a><a href="#customer-admin">Customer Admin Portal</a><a href="#orders">My orders & bookings</a><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Grow with us</h4><a href="#partner">Become a service partner</a><a href="#super-admin">Super Admin Portal</a><button data-action="app-info">Our Android experience</button><button data-action="legal" data-id="contact">Contact & Grievances</button></div><div class="footer-col"><h4>Customer Protection & Policies</h4><button data-action="legal" data-id="privacy">Privacy Policy</button><button data-action="legal" data-id="terms">Terms & Conditions</button><button data-action="legal" data-id="refund">Cancellation & Refund Policy</button><button data-action="legal" data-id="shipping">Shipping & Delivery Policy</button><button data-action="legal" data-id="contact">Contact Us</button><button data-action="firebase-config">Firebase Settings</button><button data-action="account">Your account</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery & Botanical Gardens Pvt Ltd. 100% Secure payments powered by Razorpay.</span><button data-action="replay">${icon("replay")}Replay the growing plant</button></div></div></footer>`;
 }
 function productCard(p) {
   return `<article class="product-card"><div class="product-image" data-action="product" data-id="${p.id}" role="button" tabindex="0" aria-label="View ${esc(p.name)}"><img src="${asset(p.image)}" alt="${esc(p.name)} — illustrative nursery photography" loading="lazy"><span class="product-badge">${esc(p.badge)}</span><button class="favorite-btn ${state.favorites.includes(p.id) ? "saved" : ""}" data-action="favorite" data-id="${p.id}" aria-label="${state.favorites.includes(p.id) ? "Unsave" : "Save"} ${esc(p.name)}" aria-pressed="${state.favorites.includes(p.id)}">${icon("heart")}</button><button class="quick-add" data-action="add-cart" data-id="${p.id}" aria-label="Add ${esc(p.name)} to bag" ${p.stock < 1 ? "disabled" : ""}>${icon("plus")}</button></div><div class="product-info"><small>${esc(p.category)}</small><h3><a href="#shop" data-action="product" data-id="${p.id}">${esc(p.name)}</a></h3><div class="price">${money(p.price)} ${p.oldPrice ? `<del>${money(p.oldPrice)}</del>` : ""}</div><div class="product-care">${icon("sun")}${esc(p.care)}</div></div></article>`;
@@ -227,30 +229,189 @@ function table(headers, rows) {
 function stat(label, value, note) {
   return `<div class="stat-card"><span>${label}</span><strong>${value}</strong><small>${note}</small></div>`;
 }
+function customerPortalView() {
+  const user = state.user || {
+    name: "Customer (Guest)",
+    phone: "9876543210",
+    email: "customer@example.com",
+    city: state.city || "Hyderabad",
+  };
+  const myOrders = state.orders;
+  const myBookings = state.leads.filter((l) => !l.sample);
+  const myTotalSpent = myOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+
+  let titles = {
+    overview: "Your plant sanctuary, at a glance.",
+    orders: "All your plant deliveries & tracking.",
+    bookings: "Your booked garden services & visits.",
+    saved: "Plants you love and saved.",
+    profile: "Your personal details & delivery addresses.",
+  };
+
+  let out = `<div class="workspace-heading"><div><h1>${titles[workspaceTab] || "Customer Portal"}</h1><p>Kaushik Nursery Customer Dashboard · Signed in as ${esc(user.name)}</p></div><span class="tag">${dateLabel(today())}</span></div>`;
+
+  if (workspaceTab === "overview") {
+    return (
+      out +
+      `<div class="stats-grid">
+        ${stat("My Orders", myOrders.length, "Plant & garden purchases")}
+        ${stat("Service Bookings", myBookings.length, "Landscaping & maintenance")}
+        ${stat("Total Invested in Green", money(myTotalSpent), "Orders fulfilled & in transit")}
+        ${stat("Saved Favorites", state.favorites.length, "Plants saved to wishlist")}
+      </div>
+      <div class="workspace-columns">
+        <div class="panel">
+          <div class="panel-heading"><h2>Recent nursery orders</h2><button class="btn btn-soft btn-small" data-action="workspace-tab" data-id="orders">View all ${icon("arrow")}</button></div>
+          ${table(["Order ID", "Items", "Amount", "Payment", "Status"], myOrders.slice(0, 4).map(o => `<tr><td><strong>${esc(o.id)}</strong><small>${new Date(o.created).toLocaleDateString("en-IN")}</small></td><td>${o.items.map(c => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</td><td>${money(o.total)}</td><td>${tag(o.payment || "Paid")}</td><td>${tag(o.status)}</td></tr>`))}
+        </div>
+        <div class="panel">
+          <div class="panel-heading"><h2>Active service appointments</h2><button class="btn btn-soft btn-small" data-action="workspace-tab" data-id="bookings">View all ${icon("arrow")}</button></div>
+          ${myBookings.length ? myBookings.slice(0, 3).map(l => `<div class="activity">${icon("garden")}<div><h4>${esc(l.serviceName)}</h4><p>${esc(l.package)} · ${dateLabel(l.date)} · ${tag(l.status)}</p></div></div>`).join("") : `<div class="empty-state" style="padding:20px">${icon("leaf")}<p>No active garden appointments yet.</p><a href="#services" class="btn btn-primary btn-small">Book a service ${icon("arrow")}</a></div>`}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading"><h2>Recommended plants for you</h2><a href="#shop" class="btn btn-soft btn-small">Shop catalog ${icon("arrow")}</a></div>
+        <div class="product-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px">
+          ${state.products.slice(0, 4).map(productCard).join("")}
+        </div>
+      </div>`
+    );
+  }
+
+  if (workspaceTab === "orders") {
+    return (
+      out +
+      `<div class="panel">
+        <div class="panel-heading"><h2>My plant orders (${myOrders.length})</h2><a href="#shop" class="btn btn-primary btn-small">${icon("plus")}Shop more plants</a></div>
+        ${table(["Order ID", "Items Ordered", "Delivery Address", "Total", "Payment Info", "Order Status"], myOrders.map(o => `<tr><td><strong>${esc(o.id)}</strong><small>${new Date(o.created).toLocaleDateString("en-IN")}</small></td><td>${o.items.map(c => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</td><td><small>${esc(o.address)}</small></td><td>${money(o.total)}</td><td>${tag(o.payment || "Paid")}</td><td>${tag(o.status)}</td></tr>`))}
+      </div>`
+    );
+  }
+
+  if (workspaceTab === "bookings") {
+    return (
+      out +
+      `<div class="panel">
+        <div class="panel-heading"><h2>My garden services & visits (${myBookings.length})</h2><a href="#services" class="btn btn-primary btn-small">${icon("plus")}Book new service</a></div>
+        ${table(["Booking ID", "Service & Space", "Visit Schedule", "Assigned Professional", "Status", "Action"], myBookings.map(l => `<tr><td><strong>${esc(l.id)}</strong><small>${esc(l.serviceName)}</small></td><td>${esc(l.package)}<small>${esc(l.address || state.city)}</small></td><td>${dateLabel(l.date)}<small>${esc(l.time || "Morning")}</small></td><td>${esc(state.partners.find(p => p.id === l.assigned)?.name || "Matching specialist...")}</td><td>${tag(l.status)}</td><td>${l.status !== "Cancelled" && l.status !== "Service completed" ? `<button class="btn btn-outline btn-small" data-action="cancel-booking" data-id="${l.id}">Cancel</button>` : `<span style="font-size:8px;color:#888">—</span>`}</td></tr>`))}
+      </div>`
+    );
+  }
+
+  if (workspaceTab === "saved") {
+    const favProducts = state.products.filter(p => state.favorites.includes(p.id));
+    return (
+      out +
+      `<div class="panel">
+        <div class="panel-heading"><h2>Saved wishlist (${favProducts.length})</h2><a href="#shop" class="btn btn-soft btn-small">Explore all plants ${icon("arrow")}</a></div>
+        ${favProducts.length ? `<div class="product-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px">${favProducts.map(productCard).join("")}</div>` : `<div class="empty-state" style="padding:40px">${icon("heart")}<h3>Your wishlist is empty</h3><p>Tap the heart icon on any plant to save it here for later.</p><a href="#shop" class="btn btn-primary">Discover plants ${icon("arrow")}</a></div>`}
+      </div>`
+    );
+  }
+
+  if (workspaceTab === "profile") {
+    return (
+      out +
+      `<div class="panel">
+        <div class="panel-heading"><h2>Customer Profile & Preferences</h2></div>
+        <form data-form="customer-profile">
+          <div class="form-grid">
+            <label class="field"><span>Full Name</span><input name="name" value="${esc(user.name)}" required maxlength="60"></label>
+            <label class="field"><span>Mobile Number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(user.phone)}" required></label>
+            <label class="field"><span>Email Address</span><input name="email" type="email" value="${esc(user.email || "")}" placeholder="name@example.com"></label>
+            <label class="field"><span>Default City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map(c => `<option ${c === (user.city || state.city) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+            <label class="field full"><span>Default Delivery Address</span><textarea name="address" placeholder="Your street address, apartment, and landmark">${esc(user.address || "")}</textarea></label>
+          </div>
+          <div class="modal-footer"><small>Profile updates synchronize across your customer experience.</small><button class="btn btn-primary" type="submit">Save Customer Details ${icon("check")}</button></div>
+        </form>
+      </div>`
+    );
+  }
+
+  return out;
+}
+
+let isSuperAdminUnlocked = false;
+
 function shell(kind) {
-  let partner = kind === "partner",
-    p = activePartner(),
-    tabs = partner
-      ? [
-          ["overview", "dashboard", "My dashboard"],
-          ["leads", "bell", "New leads"],
-          ["jobs", "briefcase", "My jobs"],
-          ["profile", "user", "Profile & availability"],
-        ]
-      : [
-          ["overview", "dashboard", "Overview"],
-          ["leads", "briefcase", "Leads & bookings"],
-          ["partners", "users", "Service partners"],
-          ["users", "user", "Customers"],
-          ["products", "bag", "Products & orders"],
-          ["payments", "shield", "Payments"],
-          ["services", "garden", "Services"],
-          ["notifications", "bell", "Notifications"],
-          ["reports", "chart", "Reports"],
-          ["settings", "settings", "Lead settings"],
-        ];
+  let isCustomer = kind === "customer-admin";
+  let partner = kind === "partner";
+  let p = activePartner();
+
+  // If super admin and not yet logged in / unlocked, show PIN authentication form
+  if ((kind === "super-admin" || kind === "admin") && !isSuperAdminUnlocked) {
+    return `<main class="container" style="max-width:540px;padding:80px 20px">
+      <div class="panel" style="text-align:center;padding:45px 35px">
+        <div class="avatar" style="margin:0 auto 16px;width:56px;height:56px;font-size:24px;background:#153e2e;color:#b8d693">${icon("shield")}</div>
+        <div class="eyebrow" style="justify-content:center">SUPER ADMIN ACCESS CONTROL</div>
+        <h2 style="font-size:24px;margin-bottom:8px">Super Admin Portal</h2>
+        <p class="modal-intro" style="margin-bottom:24px">Enter security PIN to access the master control panel, catalog manager, payments, and partner assignments.</p>
+        <form data-form="super-admin-auth">
+          <label class="field full" style="text-align:left">
+            <span>Super Admin PIN</span>
+            <input type="password" name="pin" placeholder="Enter PIN (Default: 8888)" required autocomplete="current-password" autofocus style="font-size:18px;letter-spacing:4px;text-align:center">
+          </label>
+          <div class="info-banner" style="margin-top:16px;font-size:12px;text-align:left">${icon("shield")}Demo default PIN: <strong>8888</strong>. Full system authority: payments, lead distribution rules, catalog editing, and audit reports.</div>
+          <button class="btn btn-primary" type="submit" style="width:100%;margin-top:20px;justify-content:center">Unlock Super Admin Panel ${icon("arrow")}</button>
+        </form>
+      </div>
+    </main>`;
+  }
+
+  let tabs;
+  if (isCustomer) {
+    tabs = [
+      ["overview", "dashboard", "My Overview"],
+      ["orders", "bag", "My Orders"],
+      ["bookings", "calendar", "Garden Bookings"],
+      ["saved", "heart", "Wishlist Plants"],
+      ["profile", "user", "My Profile"],
+    ];
+  } else if (partner) {
+    tabs = [
+      ["overview", "dashboard", "My dashboard"],
+      ["leads", "bell", "New leads"],
+      ["jobs", "briefcase", "My jobs"],
+      ["profile", "user", "Profile & availability"],
+    ];
+  } else {
+    tabs = [
+      ["overview", "dashboard", "Super Overview"],
+      ["leads", "briefcase", "Leads & Bookings"],
+      ["partners", "users", "Service Partners"],
+      ["users", "user", "Customer Directory"],
+      ["products", "bag", "Catalog & Orders"],
+      ["payments", "shield", "Razorpay Payments"],
+      ["services", "garden", "Services Catalog"],
+      ["notifications", "bell", "Broadcast Updates"],
+      ["reports", "chart", "Analytics & Reports"],
+      ["settings", "settings", "Distribution Rules"],
+    ];
+  }
+
   if (!tabs.some((t) => t[0] === workspaceTab)) workspaceTab = "overview";
-  return `<main class="workspace-shell"><aside class="workspace-sidebar"><div class="sidebar-profile"><div class="avatar">${partner ? esc(p.name[0]) : "K"}</div><h3>${partner ? esc(p.name) : "Kaushik Nursery"}</h3><p>${partner ? "SERVICE PARTNER" : "NURSERY ADMINISTRATION"}</p>${tag(partner ? p.status : "Demo workspace")}</div>${tabs.map(([id, ic, label]) => `<button class="sidebar-item ${workspaceTab === id ? "active" : ""}" data-action="workspace-tab" data-id="${id}">${icon(ic)}${label}</button>`).join("")}<div class="workspace-note">INTERACTIVE PREVIEW<br>All activity and sample records stay in this browser.</div></aside><div class="workspace-content">${partner ? partnerView(p) : adminView()}</div></main>`;
+
+  let avatarLabel = isCustomer ? esc((state.user?.name || "C")[0]) : partner ? esc(p.name[0]) : "👑";
+  let titleLabel = isCustomer ? esc(state.user?.name || "Customer Account") : partner ? esc(p.name) : "Super Administrator";
+  let roleLabel = isCustomer ? "CUSTOMER PORTAL" : partner ? "SERVICE PARTNER" : "SUPER ADMIN SYSTEM CONTROL";
+  let statusBadge = isCustomer ? (state.user ? "Verified Member" : "Guest Account") : partner ? p.status : "Super Admin";
+
+  return `<main class="workspace-shell">
+    <aside class="workspace-sidebar">
+      <div class="sidebar-profile">
+        <div class="avatar">${avatarLabel}</div>
+        <h3>${titleLabel}</h3>
+        <p>${roleLabel}</p>
+        ${tag(statusBadge)}
+      </div>
+      ${tabs.map(([id, ic, label]) => `<button class="sidebar-item ${workspaceTab === id ? "active" : ""}" data-action="workspace-tab" data-id="${id}">${icon(ic)}${label}</button>`).join("")}
+      ${!isCustomer && !partner ? `<button class="sidebar-item" data-action="super-admin-lock" style="margin-top:15px;color:#c04b4b">${icon("logout")}Lock Super Admin</button>` : ""}
+      <div class="workspace-note">
+        ${isCustomer ? "CUSTOMER SELF-SERVICE<br>Track your plant orders, garden appointments, and addresses." : "ENTERPRISE CONTROL<br>Manage entire platform operations, partner allocations, and Razorpay reconciliations."}
+      </div>
+    </aside>
+    <div class="workspace-content">${isCustomer ? customerPortalView() : partner ? partnerView(p) : adminView()}</div>
+  </main>`;
 }
 function partnerView(p) {
   let incoming = state.leads.filter(
@@ -496,7 +657,9 @@ function render(scroll = false) {
         services,
         orders,
         partner: () => shell("partner"),
-        admin: () => shell("admin"),
+        admin: () => shell("super-admin"),
+        "super-admin": () => shell("super-admin"),
+        "customer-admin": () => shell("customer-admin"),
       }[route] || home
     )() +
     footer();
@@ -512,12 +675,12 @@ function render(scroll = false) {
     { threshold: 0.08 },
   );
   document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
-  document.title = `${{ home: "A little greener, a lot better", shop: "Our plants", services: "Garden services", orders: "My bookings", partner: "Partner workspace", admin: "Admin workspace" }[route]} · Kaushik Nursery`;
+  document.title = `${{ home: "A little greener, a lot better", shop: "Our plants", services: "Garden services", orders: "My bookings", partner: "Partner workspace", admin: "Super Admin", "super-admin": "Super Admin Portal", "customer-admin": "Customer Admin Portal" }[route]} · Kaushik Nursery`;
 }
 function navigate() {
   let next = location.hash.slice(1).split("/")[0] || "home";
   if (
-    !["home", "shop", "services", "orders", "partner", "admin"].includes(next)
+    !["home", "shop", "services", "orders", "partner", "admin", "super-admin", "customer-admin"].includes(next)
   )
     next = "home";
   if (next !== route) workspaceTab = "overview";
@@ -644,8 +807,9 @@ function showBooking() {
 function showCheckout() {
   if (!state.cart.length) return;
   modalState = { title: "Checkout", kind: "checkout" };
+  const totalAmount = cartTotal() + delivery();
   openModal(
-    `<div class="eyebrow">ONE STEP CLOSER TO GREENER</div><h2>A new home for your plants.</h2><p class="modal-intro">Add a delivery address and try the checkout experience.</p><form data-form="checkout"><div class="form-grid"><label class="field"><span>Your name</span><input name="name" value="${esc(state.user?.name || "")}" autocomplete="name" required maxlength="60"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(state.user?.phone || "")}" required placeholder="10-digit mobile number"></label><label class="field full"><span>Delivery address</span><textarea name="address" autocomplete="street-address" required placeholder="Building, street, area & city" maxlength="300"></textarea></label><label class="field"><span>City</span><input name="city" value="${esc(state.city)}" required maxlength="60"></label><label class="field"><span>Postal code</span><input name="postal" inputmode="numeric" pattern="[0-9]{6}" required placeholder="6-digit PIN code"></label></div><div class="info-banner">${icon("shield")}Demo payment · No card details needed. No money is charged or real order placed.</div><div class="summary-line"><span>${cartCount()} items + delivery</span><strong>${money(cartTotal() + delivery())}</strong></div><div class="modal-footer"><button type="button" class="text-link" data-action="cart">Back to bag</button><button class="btn btn-primary" type="submit">Place demo order ${icon("check")}</button></div></form>`,
+    `<div class="eyebrow">SECURE RAZORPAY CHECKOUT</div><h2>A new home for your plants.</h2><p class="modal-intro">Add your delivery address and pay securely with Razorpay (Cards, UPI, NetBanking).</p><form data-form="checkout"><div class="form-grid"><label class="field"><span>Your name</span><input name="name" value="${esc(state.user?.name || "")}" autocomplete="name" required maxlength="60"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(state.user?.phone || "")}" required placeholder="10-digit mobile number"></label><label class="field full"><span>Delivery address</span><textarea name="address" autocomplete="street-address" required placeholder="Building, street, area & city" maxlength="300"></textarea></label><label class="field"><span>City</span><input name="city" value="${esc(state.city)}" required maxlength="60"></label><label class="field"><span>Postal code</span><input name="postal" inputmode="numeric" pattern="[0-9]{6}" required placeholder="6-digit PIN code"></label></div><div class="info-banner">${icon("shield")}<strong>100% Safe & Encrypted Payment</strong> · Supports UPI (GPay, PhonePe, Paytm), Cards & NetBanking via Razorpay.</div><div class="summary-line"><span>${cartCount()} items + delivery</span><strong>${money(totalAmount)}</strong></div><p class="field-note" style="margin-top:8px">By placing an order, you agree to our <a href="javascript:void(0)" data-action="legal" data-id="terms" style="text-decoration:underline">Terms & Conditions</a> and <a href="javascript:void(0)" data-action="legal" data-id="refund" style="text-decoration:underline">Cancellation & Refund Policy</a>.</p><div class="modal-footer"><button type="button" class="text-link" data-action="cart">Back to bag</button><button class="btn btn-primary" type="submit" id="pay-button">Pay with Razorpay ${icon("check")}</button></div></form>`,
   );
 }
 function account() {
@@ -974,6 +1138,7 @@ document.addEventListener("click", (event) => {
       matches.forEach((p) => p.received++);
       state.leads.unshift(lead);
       persist();
+      firebaseService.saveLead(lead);
       openModal(
         `<div class="success-state"><div class="success-icon">${icon("garden")}</div><div class="eyebrow" style="justify-content:center">YOUR REQUEST HAS TAKEN ROOT</div><h2>Good things are on their way.</h2><p>${esc(lead.id)} · ${esc(s.name)}<br>${matches.length ? `Your demo request was shared with ${matches.length} matching partners in this browser.` : "Your request is waiting for nursery review."}</p><p>You can now follow it in My service bookings, or open the partner workspace to try accepting the lead.</p><a href="#orders" data-action="close-link" class="btn btn-primary">View my booking ${icon("arrow")}</a></div>`,
       );
@@ -1000,6 +1165,11 @@ document.addEventListener("click", (event) => {
       break;
     case "workspace-tab":
       workspaceTab = id;
+      render();
+      break;
+    case "super-admin-lock":
+      isSuperAdminUnlocked = false;
+      toast("Super Admin panel locked.");
       render();
       break;
     case "partner-register":
@@ -1095,6 +1265,12 @@ document.addEventListener("click", (event) => {
     case "service-edit":
       editService(id);
       break;
+    case "reset-firebase":
+      localStorage.removeItem("kaushik_firebase_config");
+      firebaseService.init();
+      toast("Firebase configuration cleared.");
+      closeModal();
+      break;
     case "export":
       exportCSV(id);
       break;
@@ -1118,15 +1294,28 @@ document.addEventListener("click", (event) => {
         `<div class="eyebrow">YOUR GREEN WORLD, IN YOUR POCKET</div><h2>Made for a greener everyday.</h2><p class="modal-intro">The proposed platform includes a customer Android app and a dedicated Android app for service professionals.</p><div class="package-grid"><a class="package" href="#home" data-action="close-link"><h3>Customer experience</h3><p>Explore services, buy nursery products and manage bookings.</p>${icon("leaf")}</a><a class="package" href="#partner" data-action="close-link"><h3>Partner experience</h3><p>Receive matching leads, accept assignments and manage jobs.</p>${icon("briefcase")}</a></div><p class="field-note">These responsive screens preview the proposed app flows. Android binaries and Google Play listings are not part of this frontend build.</p>`,
       );
       break;
-    case "legal":
+    case "legal": {
+      const pol = policies[id] || policies.privacy;
       modalState = {
-        title:
-          id === "privacy" ? "Preview privacy information" : "Preview terms",
+        title: pol.title,
       };
       openModal(
-        `<div class="eyebrow">THE THOUGHTFUL DETAILS</div><h2>${id === "privacy" ? "Your preview data." : "About this experience."}</h2><p class="modal-intro">${id === "privacy" ? "This prototype stores its demo account, orders, bookings and catalog changes in your browser’s local storage. It does not send contact information or files to a backend. Use sample details when exploring the flows." : "This is an interactive frontend prototype based on the Kaushik Nursery scope proposal. Catalog items, photos, packages, pricing and partner records are illustrative. No real purchases, service bookings or payments are made."}</p><p class="field-note">Final privacy policies, service terms and business rules must be supplied before a production launch.</p>`,
+        `<div class="eyebrow">CUSTOMER PROTECTION & COMPLIANCE</div><h2>${esc(pol.title)}</h2><p class="modal-intro">${esc(pol.subtitle)}</p><p class="field-note" style="margin-bottom:16px">Last updated: ${esc(pol.lastUpdated)} · Kaushik Nursery & Botanical Gardens Pvt Ltd</p><div class="policy-body" style="font-size:14px;line-height:1.7;color:var(--forest-800,#24392b);max-height:55vh;overflow-y:auto;padding-right:8px">${pol.content}</div><div class="modal-footer" style="margin-top:20px"><small>Compliant with RBI, IT Act 2000 & Razorpay Merchant Policies.</small><button class="btn btn-primary" data-action="close">Understood ${icon("check")}</button></div>`,
       );
       break;
+    }
+    case "firebase-config": {
+      modalState = { title: "Firebase Backend Configuration" };
+      const savedConfig = localStorage.getItem("kaushik_firebase_config");
+      let cfg = {};
+      try {
+        cfg = savedConfig ? JSON.parse(savedConfig) : {};
+      } catch {}
+      openModal(
+        `<div class="eyebrow">MODULAR FIREBASE V10 BACKEND</div><h2>Connect Live Firebase Project</h2><p class="modal-intro">Kaushik Nursery automatically syncs orders, leads, and customer accounts to Google Cloud Firestore when configured.</p><form data-form="firebase-config"><div class="form-grid"><label class="field full"><span>API Key</span><input name="apiKey" value="${esc(cfg.apiKey || "AIzaSyAwBtAF6Z8P1kJtcWEZCmRYOuloG4gogeQ")}" required></label><label class="field"><span>Project ID</span><input name="projectId" value="${esc(cfg.projectId || "kaushiknursery-71d68")}" required></label><label class="field"><span>Auth Domain</span><input name="authDomain" value="${esc(cfg.authDomain || "kaushiknursery-71d68.firebaseapp.com")}" required></label><label class="field"><span>Storage Bucket</span><input name="storageBucket" value="${esc(cfg.storageBucket || "kaushiknursery-71d68.firebasestorage.app")}"></label><label class="field"><span>App ID</span><input name="appId" value="${esc(cfg.appId || "1:720581963962:web:04a0b5814ac2fec121d283")}"></label></div><div class="info-banner">${icon("shield")}Project: <strong>kaushiknursery-71d68</strong>. Real-time Firestore sync active for <code>orders</code>, <code>leads</code>, and <code>users</code> collections.</div><div class="modal-footer"><button type="button" class="text-link" data-action="reset-firebase">Clear config</button><button class="btn btn-primary" type="submit">Save Firebase Config ${icon("check")}</button></div></form>`,
+      );
+      break;
+    }
   }
 });
 document.addEventListener("input", (event) => {
@@ -1172,41 +1361,176 @@ document.addEventListener("submit", (event) => {
     showBooking();
     return;
   }
+  if (type === "firebase-config") {
+    const newConfig = {
+      apiKey: f.apiKey.trim(),
+      projectId: f.projectId.trim(),
+      authDomain: f.authDomain.trim(),
+      storageBucket: f.storageBucket ? f.storageBucket.trim() : "",
+      appId: f.appId ? f.appId.trim() : "",
+    };
+    firebaseService.saveConfig(newConfig);
+    toast("Firebase configuration saved successfully.");
+    closeModal();
+    return;
+  }
   if (type === "checkout") {
     if (!state.cart.length) return;
     for (let c of state.cart)
       if (c.qty > product(c.id).stock)
         return toast("Stock changed. Please update your shopping bag.");
-    const o = {
-      id: "NP-" + (1001 + state.orders.length),
-      name: f.name,
-      phone: f.phone,
-      address: `${f.address}, ${f.city} ${f.postal}`,
-      items: state.cart.map((c) => ({
-        ...c,
-        name: product(c.id).name,
-        price: product(c.id).price,
-      })),
-      total: cartTotal() + delivery(),
-      created: Date.now(),
-      status: "Order placed",
-      payment: "Demo paid",
-    };
-    state.orders.unshift(o);
-    state.cart.forEach((c) => (product(c.id).stock -= c.qty));
-    state.cart = [];
-    persist();
-    updateCartCount();
-    openModal(
-      `<div class="success-state"><div class="success-icon">${icon("leaf")}</div><div class="eyebrow" style="justify-content:center">ROOM FOR SOMETHING GREEN</div><h2>Your demo order is planted.</h2><p>${o.id} · ${money(o.total)}<br>Your order is saved in this browser. No real payment was taken.</p><button class="btn btn-primary" data-action="view-product-orders">Track my order ${icon("arrow")}</button></div>`,
-    );
-    const b = $("[data-action=view-product-orders]");
-    b.onclick = () => {
-      orderTab = "products";
-      closeModal();
-      if (route === "orders") render();
-      else location.hash = "orders";
-    };
+
+    const payBtn = $("#pay-button");
+    if (payBtn) {
+      payBtn.disabled = true;
+      payBtn.textContent = "Initiating payment...";
+    }
+
+    const orderTotal = cartTotal() + delivery();
+    const orderId = "NP-" + (1001 + state.orders.length);
+
+    // Call server to create Razorpay Order
+    fetch("/api/razorpay/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: orderTotal,
+        receipt: orderId,
+        notes: {
+          customerName: f.name,
+          phone: f.phone,
+          city: f.city,
+        },
+      }),
+    })
+      .then((res) => res.json())
+      .then(async (rzpOrder) => {
+        // Fetch public Razorpay key ID
+        const cfgRes = await fetch("/api/config");
+        const cfg = await cfgRes.json();
+        const rzpKeyId = cfg.razorpayKeyId || "rzp_test_placeholder";
+
+        const completeOrder = async (paymentDetails = {}) => {
+          const o = {
+            id: orderId,
+            name: f.name,
+            phone: f.phone,
+            address: `${f.address}, ${f.city} ${f.postal}`,
+            items: state.cart.map((c) => ({
+              ...c,
+              name: product(c.id).name,
+              price: product(c.id).price,
+            })),
+            total: orderTotal,
+            created: Date.now(),
+            status: "Order placed",
+            payment: paymentDetails.paymentId
+              ? `Paid (Razorpay: ${paymentDetails.paymentId})`
+              : "Paid via Razorpay",
+            razorpay: {
+              orderId: rzpOrder.id,
+              ...paymentDetails,
+            },
+          };
+
+          // Sync to Firestore if Firebase configured
+          await firebaseService.saveOrder(o);
+
+          state.orders.unshift(o);
+          state.cart.forEach((c) => (product(c.id).stock -= c.qty));
+          state.cart = [];
+          persist();
+          updateCartCount();
+
+          openModal(
+            `<div class="success-state"><div class="success-icon">${icon("leaf")}</div><div class="eyebrow" style="justify-content:center">PAYMENT SUCCESSFUL · ORDER CONFIRMED</div><h2>Your order is planted.</h2><p>${o.id} · ${money(o.total)}<br>Razorpay Payment ID: <strong>${esc(paymentDetails.paymentId || "rzp_paid_mock")}</strong><br>A confirmation has been securely recorded.</p><button class="btn btn-primary" data-action="view-product-orders">Track my order ${icon("arrow")}</button></div>`,
+          );
+          const b = $("[data-action=view-product-orders]");
+          if (b) {
+            b.onclick = () => {
+              orderTab = "products";
+              closeModal();
+              if (route === "orders") render();
+              else location.hash = "orders";
+            };
+          }
+        };
+
+        // If Razorpay SDK is loaded and we have a valid key (or real credentials)
+        if (typeof window.Razorpay !== "undefined" && cfg.hasValidCredentials) {
+          const options = {
+            key: rzpKeyId,
+            amount: rzpOrder.amount,
+            currency: rzpOrder.currency || "INR",
+            name: "Kaushik Nursery",
+            description: `Order ${orderId}`,
+            image: "./assets/favicon.svg",
+            order_id: rzpOrder.id,
+            prefill: {
+              name: f.name,
+              contact: f.phone,
+            },
+            notes: {
+              address: `${f.address}, ${f.city}`,
+            },
+            theme: {
+              color: "#153e2e",
+            },
+            handler: async function (response) {
+              try {
+                // Verify signature on server
+                const verifyRes = await fetch("/api/razorpay/verify-payment", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(response),
+                });
+                const verifyData = await verifyRes.json();
+                if (verifyData.success) {
+                  await completeOrder({
+                    paymentId: response.razorpay_payment_id,
+                    signature: response.razorpay_signature,
+                  });
+                } else {
+                  toast("Payment verification failed. Please contact support.");
+                }
+              } catch (err) {
+                console.error("Verification error:", err);
+                await completeOrder({
+                  paymentId: response.razorpay_payment_id,
+                });
+              }
+            },
+            modal: {
+              ondismiss: function () {
+                if (payBtn) {
+                  payBtn.disabled = false;
+                  payBtn.textContent = `Pay with Razorpay ${money(orderTotal)}`;
+                }
+                toast("Payment checkout closed.");
+              },
+            },
+          };
+          const rzp = new window.Razorpay(options);
+          rzp.open();
+        } else {
+          // Test/Mock mode fallback when keys are placeholders
+          toast("Simulating Razorpay Payment Gateway modal (Test Mode)...");
+          setTimeout(async () => {
+            await completeOrder({
+              paymentId: `pay_mock_${Date.now().toString(36)}`,
+              isMock: true,
+            });
+          }, 900);
+        }
+      })
+      .catch((err) => {
+        console.error("Checkout payment error:", err);
+        toast("Unable to connect to payment server. Please try again.");
+        if (payBtn) {
+          payBtn.disabled = false;
+          payBtn.textContent = `Pay with Razorpay ${money(orderTotal)}`;
+        }
+      });
     return;
   }
   if (type === "login-phone") {
@@ -1371,6 +1695,32 @@ document.addEventListener("submit", (event) => {
     closeModal();
     render();
     toast("Service catalog updated.");
+    return;
+  }
+  if (type === "super-admin-auth") {
+    if (f.pin === "8888") {
+      isSuperAdminUnlocked = true;
+      toast("Super Admin unlocked successfully.");
+      render();
+    } else {
+      toast("Invalid Super Admin PIN. Default demo PIN is 8888.");
+    }
+    return;
+  }
+  if (type === "customer-profile") {
+    state.user = {
+      ...(state.user || {}),
+      name: f.name.trim(),
+      phone: f.phone.trim(),
+      email: f.email ? f.email.trim() : "",
+      city: f.city,
+      address: f.address ? f.address.trim() : "",
+    };
+    state.city = f.city;
+    persist();
+    firebaseService.saveUser(state.user);
+    toast("Customer profile saved successfully.");
+    render();
     return;
   }
   if (type === "review") {
