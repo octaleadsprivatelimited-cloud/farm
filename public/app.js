@@ -242,12 +242,52 @@ function stat(label, value, note) {
   return `<div class="stat-card"><span>${label}</span><strong>${value}</strong><small>${note}</small></div>`;
 }
 function customerPortalView() {
-  const user = state.user || {
-    name: "Customer (Guest)",
-    phone: "9876543210",
-    email: "customer@example.com",
-    city: state.city || "Hyderabad",
-  };
+  if (!state.user) {
+    state.user = {
+      name: "Customer (Guest)",
+      phone: "9876543210",
+      email: "customer@example.com",
+      city: state.city || "Hyderabad",
+      address: "Plot 42, Jubilee Hills Road No. 36",
+      addresses: [
+        {
+          id: "addr_1",
+          tag: "Home",
+          name: "Customer (Guest)",
+          phone: "9876543210",
+          line: "Plot 42, Jubilee Hills Road No. 36",
+          city: "Hyderabad",
+          pincode: "500033",
+          isDefault: true,
+        },
+        {
+          id: "addr_2",
+          tag: "Office / Terrace",
+          name: "Customer (Guest)",
+          phone: "9876543210",
+          line: "Floor 4, Cyber Towers, Hitec City",
+          city: "Hyderabad",
+          pincode: "500081",
+          isDefault: false,
+        },
+      ],
+    };
+  } else if (!state.user.addresses || !state.user.addresses.length) {
+    state.user.addresses = [
+      {
+        id: "addr_1",
+        tag: "Home",
+        name: state.user.name || "Customer",
+        phone: state.user.phone || "9876543210",
+        line: state.user.address || "Plot 42, Green Avenue",
+        city: state.user.city || state.city || "Hyderabad",
+        pincode: "500033",
+        isDefault: true,
+      },
+    ];
+    persist();
+  }
+  const user = state.user;
   const myOrders = state.orders;
   const myBookings = state.leads.filter((l) => !l.sample);
   const myTotalSpent = myOrders.reduce((sum, o) => sum + (o.total || 0), 0);
@@ -257,7 +297,8 @@ function customerPortalView() {
     orders: "All your plant deliveries & tracking.",
     bookings: "Your booked garden services & visits.",
     saved: "Plants you love and saved.",
-    profile: "Your personal details & delivery addresses.",
+    addresses: "Your saved delivery addresses.",
+    profile: "Your personal details & delivery preferences.",
   };
 
   let out = `<div class="workspace-heading"><div><h1>${titles[workspaceTab] || "Customer Portal"}</h1><p>Kaushik Nursery Customer Dashboard · Signed in as ${esc(user.name)}</p></div><span class="tag">${dateLabel(today())}</span></div>`;
@@ -321,7 +362,61 @@ function customerPortalView() {
     );
   }
 
+  if (workspaceTab === "addresses") {
+    const addresses = user.addresses || [];
+    return (
+      out +
+      `<div class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>My Delivery Addresses (${addresses.length})</h2>
+            <p>Add and manage multiple delivery addresses for seamless plant orders and garden visits.</p>
+          </div>
+          <button class="btn btn-primary btn-small" data-action="address-add">${icon("plus")} Add New Address</button>
+        </div>
+        ${
+          addresses.length
+            ? `<div class="address-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+                ${addresses
+                  .map(
+                    (addr) => `
+                  <div class="address-card ${addr.isDefault ? "default" : ""}" style="background:#fff;border:1px solid ${addr.isDefault ? "var(--forest,#153e2e)" : "#dde4d4"};border-radius:8px;padding:16px;position:relative;display:flex;flex-direction:column;justify-content:space-between">
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                        <span style="font-weight:700;font-size:12px;color:var(--forest,#153e2e);display:flex;align-items:center;gap:6px">
+                          ${icon("pin")} ${esc(addr.tag || "Home")}
+                        </span>
+                        ${addr.isDefault ? '<span class="tag green" style="background:#dcead0;color:#244d38;font-size:9px">Default</span>' : ""}
+                      </div>
+                      <p style="font-size:12px;line-height:1.6;margin:0 0 6px;color:#1e3527"><strong>${esc(addr.name || user.name)}</strong> · ${esc(addr.phone || user.phone)}</p>
+                      <p style="font-size:11px;line-height:1.6;margin:0 0 4px;color:#536757">${esc(addr.line)}</p>
+                      <p style="font-size:11px;color:#7a8a7c;margin:0">${esc(addr.city)}${addr.pincode ? ` - ${esc(addr.pincode)}` : ""}</p>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;padding-top:10px;border-top:1px dashed #e1e8d9">
+                      ${!addr.isDefault ? `<button class="btn btn-soft btn-small" data-action="address-set-default" data-id="${addr.id}" style="font-size:10px;padding:4px 8px">Set as Default</button>` : '<span style="font-size:10px;color:var(--muted)">Primary delivery</span>'}
+                      <div style="display:flex;gap:6px">
+                        <button class="btn btn-outline btn-small" data-action="address-edit" data-id="${addr.id}" style="font-size:10px;padding:4px 8px">Edit</button>
+                        <button class="btn btn-outline btn-small" data-action="address-delete" data-id="${addr.id}" style="font-size:10px;padding:4px 8px;color:#ba4c4c">Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>`
+            : `<div class="empty-state" style="padding:40px">
+                ${icon("pin")}
+                <h3>No saved addresses yet</h3>
+                <p>Save multiple home, balcony, terrace, or office addresses for fast checkout.</p>
+                <button class="btn btn-primary" data-action="address-add">${icon("plus")} Add Your First Address</button>
+              </div>`
+        }
+      </div>`
+    );
+  }
+
   if (workspaceTab === "profile") {
+    const addresses = user.addresses || [];
     return (
       out +
       `<div class="panel">
@@ -331,11 +426,19 @@ function customerPortalView() {
             <label class="field"><span>Full Name</span><input name="name" value="${esc(user.name)}" required maxlength="60"></label>
             <label class="field"><span>Mobile Number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(user.phone)}" required></label>
             <label class="field"><span>Email Address</span><input name="email" type="email" value="${esc(user.email || "")}" placeholder="name@example.com"></label>
-            <label class="field"><span>Default City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map(c => `<option ${c === (user.city || state.city) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
-            <label class="field full"><span>Default Delivery Address</span><textarea name="address" placeholder="Your street address, apartment, and landmark">${esc(user.address || "")}</textarea></label>
+            <label class="field"><span>Default City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === (user.city || state.city) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+            <label class="field full"><span>Primary Delivery Address</span><textarea name="address" placeholder="Your street address, apartment, and landmark">${esc(user.address || "")}</textarea></label>
           </div>
           <div class="modal-footer"><small>Profile updates synchronize across your customer experience.</small><button class="btn btn-primary" type="submit">Save Customer Details ${icon("check")}</button></div>
         </form>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>Delivery Addresses (${addresses.length})</h2>
+          <button class="btn btn-soft btn-small" data-action="workspace-tab" data-id="addresses">Manage all addresses ${icon("arrow")}</button>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:12px">You have ${addresses.length} saved delivery ${addresses.length === 1 ? "address" : "addresses"}. You can add work, parents', or vacation garden addresses.</p>
+        <button class="btn btn-outline btn-small" data-action="address-add">${icon("plus")} Add Another Address</button>
       </div>`
     );
   }
@@ -386,6 +489,7 @@ function shell(kind) {
       ["orders", "bag", "My Orders"],
       ["bookings", "calendar", "Garden Bookings"],
       ["saved", "heart", "Wishlist Plants"],
+      ["addresses", "pin", "Saved Addresses"],
       ["profile", "user", "My Profile"],
     ];
   } else if (partner) {
@@ -916,12 +1020,142 @@ function showBooking() {
   }
   openModal(out);
 }
+function showAddressModal(id = null) {
+  const isEdit = Boolean(id);
+  const addresses = state.user?.addresses || [];
+  const target = isEdit
+    ? addresses.find((a) => a.id === id) || {}
+    : {
+        tag: "Home",
+        name: state.user?.name || "",
+        phone: state.user?.phone || "",
+        line: "",
+        city: state.city || "Hyderabad",
+        pincode: "",
+        isDefault: !addresses.length,
+      };
+
+  modalState = { title: isEdit ? "Edit delivery address" : "Add new delivery address", id };
+  openModal(
+    `<div class="eyebrow">${isEdit ? "UPDATE SAVED ADDRESS" : "ADD DELIVERY ADDRESS"}</div>
+     <h2>${isEdit ? "Edit address." : "Where should we deliver?"}</h2>
+     <p class="modal-intro">Save multiple homes, terrace setups or office locations for quick checkout.</p>
+     <form data-form="address-save">
+       <input type="hidden" name="id" value="${esc(target.id || "")}">
+       <div class="form-grid">
+         <label class="field">
+           <span>Address Tag / Label</span>
+           <select name="tag">
+             ${["Home", "Work / Office", "Balcony Garden", "Terrace Farm", "Parents", "Other"]
+               .map((t) => `<option ${target.tag === t ? "selected" : ""}>${t}</option>`)
+               .join("")}
+           </select>
+         </label>
+         <label class="field">
+           <span>Contact Name</span>
+           <input name="name" value="${esc(target.name || state.user?.name || "")}" required maxlength="60">
+         </label>
+         <label class="field">
+           <span>Phone Number</span>
+           <input name="phone" type="tel" pattern="[0-9]{10}" inputmode="numeric" value="${esc(target.phone || state.user?.phone || "")}" required placeholder="10-digit number">
+         </label>
+         <label class="field">
+           <span>City</span>
+           <select name="city">
+             ${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"]
+               .map((c) => `<option ${target.city === c ? "selected" : ""}>${c}</option>`)
+               .join("")}
+           </select>
+         </label>
+         <label class="field full">
+           <span>Complete Street Address & Landmark</span>
+           <textarea name="line" required placeholder="Flat / House no, building, street, area, landmark" maxlength="300">${esc(target.line || "")}</textarea>
+         </label>
+         <label class="field">
+           <span>Postal PIN Code</span>
+           <input name="pincode" pattern="[0-9]{6}" inputmode="numeric" value="${esc(target.pincode || "")}" required placeholder="6-digit PIN">
+         </label>
+         <label class="field" style="display:flex;align-items:center;gap:10px;margin-top:24px">
+           <input type="checkbox" name="isDefault" ${target.isDefault ? "checked" : ""} style="width:16px;height:16px">
+           <span style="margin:0">Set as primary default address</span>
+         </label>
+       </div>
+       <div class="modal-footer">
+         <button type="button" class="btn btn-outline" data-action="close">Cancel</button>
+         <button class="btn btn-primary" type="submit">Save Address ${icon("check")}</button>
+       </div>
+     </form>`,
+  );
+}
+
 function showCheckout() {
   if (!state.cart.length) return;
   modalState = { title: "Checkout", kind: "checkout" };
   const totalAmount = cartTotal() + delivery();
+  const addresses = state.user?.addresses || [];
+  const defAddr = addresses.find((a) => a.isDefault) || addresses[0];
+
   openModal(
-    `<div class="eyebrow">SECURE RAZORPAY CHECKOUT</div><h2>A new home for your plants.</h2><p class="modal-intro">Add your delivery address and pay securely with Razorpay (Cards, UPI, NetBanking).</p><form data-form="checkout"><div class="form-grid"><label class="field"><span>Your name</span><input name="name" value="${esc(state.user?.name || "")}" autocomplete="name" required maxlength="60"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(state.user?.phone || "")}" required placeholder="10-digit mobile number"></label><label class="field full"><span>Delivery address</span><textarea name="address" autocomplete="street-address" required placeholder="Building, street, area & city" maxlength="300"></textarea></label><label class="field"><span>City</span><input name="city" value="${esc(state.city)}" required maxlength="60"></label><label class="field"><span>Postal code</span><input name="postal" inputmode="numeric" pattern="[0-9]{6}" required placeholder="6-digit PIN code"></label></div><div class="info-banner">${icon("shield")}<strong>100% Safe & Encrypted Payment</strong> · Supports UPI (GPay, PhonePe, Paytm), Cards & NetBanking via Razorpay.</div><div class="summary-line"><span>${cartCount()} items + delivery</span><strong>${money(totalAmount)}</strong></div><p class="field-note" style="margin-top:8px">By placing an order, you agree to our <a href="javascript:void(0)" data-action="legal" data-id="terms" style="text-decoration:underline">Terms & Conditions</a> and <a href="javascript:void(0)" data-action="legal" data-id="refund" style="text-decoration:underline">Cancellation & Refund Policy</a>.</p><div class="modal-footer"><button type="button" class="text-link" data-action="cart">Back to bag</button><button class="btn btn-primary" type="submit" id="pay-button">Pay with Razorpay ${icon("check")}</button></div></form>`,
+    `<div class="eyebrow">SECURE RAZORPAY CHECKOUT</div>
+     <h2>A new home for your plants.</h2>
+     <p class="modal-intro">Choose delivery address and pay securely with Razorpay (Cards, UPI, NetBanking).</p>
+     <form data-form="checkout">
+       ${
+         addresses.length
+           ? `<div style="margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <span style="font-size:11px;font-weight:700;color:var(--forest,#153e2e)">SELECT SAVED ADDRESS</span>
+                  <a href="#customer-admin" data-action="close-link" style="font-size:11px;color:var(--forest);text-decoration:underline">+ Manage in portal</a>
+                </div>
+                <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px">
+                  ${addresses
+                    .map(
+                      (a, idx) => `
+                    <label style="border:1px solid ${a.id === defAddr?.id ? "var(--forest,#153e2e)" : "#dde4d4"};background:${a.id === defAddr?.id ? "#f3f7ee" : "#fff"};border-radius:7px;padding:10px 14px;cursor:pointer;min-width:200px;flex-shrink:0;font-size:11px">
+                      <div style="display:flex;align-items:center;gap:6px;font-weight:700;margin-bottom:4px">
+                        <input type="radio" name="selected_address_id" value="${a.id}" ${a.id === defAddr?.id ? "checked" : ""} data-action="select-checkout-addr" style="margin:0">
+                        <span>${esc(a.tag)}</span>
+                        ${a.isDefault ? '<small style="background:#e3ecd8;color:#2c5239;padding:1px 6px;border-radius:4px;font-size:9px">Default</small>' : ""}
+                      </div>
+                      <div style="color:#576b5b;line-height:1.4">${esc(a.line.slice(0, 42))}...</div>
+                    </label>
+                  `,
+                    )
+                    .join("")}
+                </div>
+              </div>`
+           : ""
+       }
+       <div class="form-grid">
+         <label class="field">
+           <span>Recipient Name</span>
+           <input name="name" value="${esc(defAddr?.name || state.user?.name || "")}" autocomplete="name" required maxlength="60">
+         </label>
+         <label class="field">
+           <span>Mobile Number</span>
+           <input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(defAddr?.phone || state.user?.phone || "")}" required placeholder="10-digit mobile number">
+         </label>
+         <label class="field full">
+           <span>Delivery Address</span>
+           <textarea name="address" autocomplete="street-address" required placeholder="Building, street, area & landmark" maxlength="300">${esc(defAddr?.line || state.user?.address || "")}</textarea>
+         </label>
+         <label class="field">
+           <span>City</span>
+           <input name="city" value="${esc(defAddr?.city || state.city)}" required maxlength="60">
+         </label>
+         <label class="field">
+           <span>Postal PIN Code</span>
+           <input name="postal" inputmode="numeric" pattern="[0-9]{6}" value="${esc(defAddr?.pincode || "500033")}" required placeholder="6-digit PIN code">
+         </label>
+       </div>
+       <div class="info-banner">${icon("shield")}<strong>100% Safe & Encrypted Payment</strong> · Supports UPI (GPay, PhonePe, Paytm), Cards & NetBanking via Razorpay.</div>
+       <div class="summary-line"><span>${cartCount()} items + delivery</span><strong>${money(totalAmount)}</strong></div>
+       <p class="field-note" style="margin-top:8px">By placing an order, you agree to our <a href="javascript:void(0)" data-action="legal" data-id="terms" style="text-decoration:underline">Terms & Conditions</a> and <a href="javascript:void(0)" data-action="legal" data-id="refund" style="text-decoration:underline">Cancellation & Refund Policy</a>.</p>
+       <div class="modal-footer">
+         <button type="button" class="text-link" data-action="cart">Back to bag</button>
+         <button class="btn btn-primary" type="submit" id="pay-button">Pay with Razorpay ${icon("check")}</button>
+       </div>
+     </form>`,
   );
 }
 function account() {
@@ -1420,6 +1654,42 @@ document.addEventListener("click", (event) => {
       );
       break;
     }
+    case "address-add":
+      showAddressModal();
+      break;
+    case "address-edit":
+      showAddressModal(id);
+      break;
+    case "address-delete": {
+      if (state.user && state.user.addresses) {
+        state.user.addresses = state.user.addresses.filter((a) => a.id !== id);
+        if (state.user.addresses.length && !state.user.addresses.some((a) => a.isDefault)) {
+          state.user.addresses[0].isDefault = true;
+          state.user.address = state.user.addresses[0].line;
+        }
+        persist();
+        firebaseService.saveUser(state.user);
+        render();
+        toast("Address removed.");
+      }
+      break;
+    }
+    case "address-set-default": {
+      if (state.user && state.user.addresses) {
+        state.user.addresses.forEach((a) => (a.isDefault = a.id === id));
+        const def = state.user.addresses.find((a) => a.id === id);
+        if (def) {
+          state.user.address = def.line;
+          state.user.city = def.city;
+          state.city = def.city;
+        }
+        persist();
+        firebaseService.saveUser(state.user);
+        render();
+        toast("Default delivery address updated.");
+      }
+      break;
+    }
     case "firebase-config": {
       modalState = { title: "Firebase Backend Configuration" };
       const savedConfig = localStorage.getItem("kaushik_firebase_config");
@@ -1444,6 +1714,21 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "product-sort") {
     shopSort = event.target.value;
     $("#catalog-results").innerHTML = filteredProducts();
+  }
+  if (event.target.name === "selected_address_id") {
+    const selId = event.target.value;
+    const addr = state.user?.addresses?.find((a) => a.id === selId);
+    if (addr) {
+      const form = event.target.closest("form");
+      if (form) {
+        if (form.elements.name) form.elements.name.value = addr.name;
+        if (form.elements.phone) form.elements.phone.value = addr.phone;
+        if (form.elements.address) form.elements.address.value = addr.line;
+        if (form.elements.city) form.elements.city.value = addr.city;
+        if (form.elements.postal) form.elements.postal.value = addr.pincode || "500033";
+      }
+      toast(`Selected address: ${addr.tag}`);
+    }
   }
   if (event.target.classList.contains("order-status-select")) {
     let o = state.orders.find((o) => o.id === event.target.dataset.id);
@@ -1839,6 +2124,52 @@ document.addEventListener("submit", (event) => {
         toast("Invalid Super Admin PIN or email.");
       }
     }
+    return;
+  }
+  if (type === "address-save") {
+    if (!state.user) {
+      state.user = {
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        email: "customer@example.com",
+        city: f.city,
+        addresses: [],
+      };
+    }
+    if (!state.user.addresses) state.user.addresses = [];
+
+    const isDefault = form.elements.isDefault?.checked;
+    const addrId = f.id || `addr_${Date.now()}`;
+    const newAddr = {
+      id: addrId,
+      tag: f.tag,
+      name: f.name.trim(),
+      phone: f.phone.trim(),
+      city: f.city,
+      line: f.line.trim(),
+      pincode: f.pincode.trim(),
+      isDefault: isDefault || !state.user.addresses.length,
+    };
+
+    if (newAddr.isDefault) {
+      state.user.addresses.forEach((a) => (a.isDefault = false));
+      state.user.address = newAddr.line;
+      state.user.city = newAddr.city;
+      state.city = newAddr.city;
+    }
+
+    const idx = state.user.addresses.findIndex((a) => a.id === addrId);
+    if (idx >= 0) {
+      state.user.addresses[idx] = newAddr;
+    } else {
+      state.user.addresses.push(newAddr);
+    }
+
+    persist();
+    firebaseService.saveUser(state.user);
+    closeModal();
+    render();
+    toast(`Address '${newAddr.tag}' saved successfully.`);
     return;
   }
   if (type === "customer-profile") {
