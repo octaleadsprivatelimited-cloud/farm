@@ -142,6 +142,18 @@ let route = "home",
   toastTimer,
   introTimer,
   observer;
+
+// Super Admin authorized emails list (can be updated with your exact Gmail)
+let SUPER_ADMIN_EMAILS = [
+  "admin@kaushiknursery.com",
+  "octaleadsprivatelimited@gmail.com",
+];
+const isSuperAdminUser = (email) => {
+  if (!email) return false;
+  return SUPER_ADMIN_EMAILS.map((e) => e.trim().toLowerCase()).includes(
+    email.trim().toLowerCase(),
+  );
+};
 const product = (id) => state.products.find((p) => p.id === id);
 const service = (id) => state.services.find((s) => s.id === id);
 const cartTotal = () =>
@@ -153,7 +165,7 @@ const tag = (text) =>
 const brand = () =>
   `<a href="#home" class="brand" aria-label="Kaushik Nursery home"><svg class="brand-icon" viewBox="0 0 40 42" fill="none"><path d="M8 30C4 14 19 4 34 5c1 14-10 27-26 25Z" fill="#d1dec1"/><path d="M7 36C11 25 18 17 28 10M13 25l1-12m5 5 12 1" stroke="#315239" stroke-width="1.6" stroke-linecap="round"/></svg><span class="brand-words">kaushik<span style="font-weight:400">.</span><small>NURSERY & GARDENS</small></span></a>`;
 function header() {
-  return `<div class="topline">A little greener. A lot better. <span></span> Plants & garden services, thoughtfully brought together.</div><header class="site-header"><div class="container header-inner">${brand()}<nav class="main-nav" aria-label="Main navigation"><a class="${route === "services" ? "active" : ""}" href="#services">Garden services</a><a class="${route === "shop" ? "active" : ""}" href="#shop">Our plants</a><a class="${route === "customer-admin" ? "active" : ""}" href="#customer-admin">Customer Portal</a><a class="${route === "orders" ? "active" : ""}" href="#orders">My bookings</a></nav><div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}${esc(state.city)}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><div class="workspace"><button class="workspace-btn" data-action="workspace" aria-expanded="false">${route === "partner" ? "Partner" : route === "super-admin" || route === "admin" ? "Super Admin" : route === "customer-admin" ? "Customer Portal" : "Portals"} ${icon("down")}</button><div class="workspace-menu hidden"><a href="#home">${icon("leaf")}Customer Store</a><a href="#customer-admin">${icon("user")}Customer Portal</a><a href="#partner">${icon("briefcase")}Partner Workspace</a><a href="#super-admin">${icon("shield")}Super Admin Portal</a><button data-action="replay">${icon("replay")}Replay plant opening</button></div></div><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div></div></header>`;
+  return `<div class="topline">A little greener. A lot better. <span></span> Plants & garden services, thoughtfully brought together.</div><header class="site-header"><div class="container header-inner">${brand()}<nav class="main-nav" aria-label="Main navigation"><a class="${route === "services" ? "active" : ""}" href="#services">Garden services</a><a class="${route === "shop" ? "active" : ""}" href="#shop">Our plants</a><a class="${route === "customer-admin" ? "active" : ""}" href="#customer-admin">Customer Portal</a><a class="${route === "orders" ? "active" : ""}" href="#orders">My bookings</a></nav><div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}${esc(state.city)}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div></div></header>`;
 }
 function footer() {
   return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>More than plants. A little more life.<br>Thoughtful gardens, from the first leaf to the finishing touch.</p></div><div class="footer-col"><h4>A greener everyday</h4><a href="#services">Garden services</a><a href="#shop">Buy our products</a><a href="#customer-admin">Customer Admin Portal</a><a href="#orders">My orders & bookings</a><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Grow with us</h4><a href="#partner">Become a service partner</a><a href="#super-admin">Super Admin Portal</a><button data-action="app-info">Our Android experience</button><button data-action="legal" data-id="contact">Contact & Grievances</button></div><div class="footer-col"><h4>Customer Protection & Policies</h4><button data-action="legal" data-id="privacy">Privacy Policy</button><button data-action="legal" data-id="terms">Terms & Conditions</button><button data-action="legal" data-id="refund">Cancellation & Refund Policy</button><button data-action="legal" data-id="shipping">Shipping & Delivery Policy</button><button data-action="legal" data-id="contact">Contact Us</button><button data-action="firebase-config">Firebase Settings</button><button data-action="account">Your account</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery & Botanical Gardens Pvt Ltd. 100% Secure payments powered by Razorpay.</span><button data-action="replay">${icon("replay")}Replay the growing plant</button></div></div></footer>`;
@@ -338,20 +350,29 @@ function shell(kind) {
   let partner = kind === "partner";
   let p = activePartner();
 
-  // If super admin and not yet logged in / unlocked, show PIN authentication form
+  // Check if current user is an authorized super admin by email
+  if (state.user && isSuperAdminUser(state.user.email)) {
+    isSuperAdminUnlocked = true;
+  }
+
+  // If super admin and not yet logged in / unlocked, show authentication form
   if ((kind === "super-admin" || kind === "admin") && !isSuperAdminUnlocked) {
     return `<main class="container" style="max-width:540px;padding:80px 20px">
       <div class="panel" style="text-align:center;padding:45px 35px">
         <div class="avatar" style="margin:0 auto 16px;width:56px;height:56px;font-size:24px;background:#153e2e;color:#b8d693">${icon("shield")}</div>
         <div class="eyebrow" style="justify-content:center">SUPER ADMIN ACCESS CONTROL</div>
         <h2 style="font-size:24px;margin-bottom:8px">Super Admin Portal</h2>
-        <p class="modal-intro" style="margin-bottom:24px">Enter security PIN to access the master control panel, catalog manager, payments, and partner assignments.</p>
+        <p class="modal-intro" style="margin-bottom:24px">Access restricted to authorized Super Admin email accounts or security master PIN.</p>
         <form data-form="super-admin-auth">
           <label class="field full" style="text-align:left">
-            <span>Super Admin PIN</span>
-            <input type="password" name="pin" placeholder="Enter PIN (Default: 8888)" required autocomplete="current-password" autofocus style="font-size:18px;letter-spacing:4px;text-align:center">
+            <span>Super Admin Gmail / Email</span>
+            <input type="email" name="email" value="${esc(state.user?.email || "")}" placeholder="admin@kaushiknursery.com" autocomplete="email" style="font-size:14px">
           </label>
-          <div class="info-banner" style="margin-top:16px;font-size:12px;text-align:left">${icon("shield")}Demo default PIN: <strong>8888</strong>. Full system authority: payments, lead distribution rules, catalog editing, and audit reports.</div>
+          <label class="field full" style="text-align:left;margin-top:14px">
+            <span>Security Master PIN (Default: 8888)</span>
+            <input type="password" name="pin" placeholder="Enter PIN (8888)" autocomplete="current-password" style="font-size:16px;letter-spacing:3px;text-align:center">
+          </label>
+          <div class="info-banner" style="margin-top:16px;font-size:12px;text-align:left">${icon("shield")}Authorized Gmail holders access directly. All other customer emails open Customer Portal.</div>
           <button class="btn btn-primary" type="submit" style="width:100%;margin-top:20px;justify-content:center">Unlock Super Admin Panel ${icon("arrow")}</button>
         </form>
       </div>
@@ -902,10 +923,10 @@ function account() {
   modalState = { title: "Your account", kind: "account" };
   if (state.user)
     return openModal(
-      `<div class="eyebrow">YOUR LITTLE GREEN SPACE</div><h2>Hello, ${esc(state.user.name.split(" ")[0])}.</h2><p class="modal-intro">Your profile, garden plans and nursery orders.</p><div class="summary-line"><span>Mobile</span><span>${esc(state.user.phone)}</span></div><div class="summary-line"><span>Email</span><span>${esc(state.user.email || "Not added")}</span></div><div class="summary-line"><span>Location</span><span>${esc(state.city)}</span></div><div class="modal-footer"><button class="text-link" data-action="logout">Sign out ${icon("logout")}</button><a class="btn btn-primary" href="#orders" data-action="close-link">My orders & bookings ${icon("arrow")}</a></div>`,
+      `<div class="eyebrow">YOUR LITTLE GREEN SPACE</div><h2>Hello, ${esc(state.user.name.split(" ")[0])}.</h2><p class="modal-intro">Your profile, garden plans, wishlist, and nursery orders.</p><div class="summary-line"><span>Name</span><span>${esc(state.user.name)}</span></div><div class="summary-line"><span>Email</span><span>${esc(state.user.email || "Not added")}</span></div><div class="summary-line"><span>Mobile</span><span>${esc(state.user.phone)}</span></div><div class="summary-line"><span>City</span><span>${esc(state.city)}</span></div><div class="modal-footer"><button class="text-link" data-action="logout">Sign out ${icon("logout")}</button><a class="btn btn-primary" href="#customer-admin" data-action="close-link">Open Customer Portal ${icon("arrow")}</a></div>`,
     );
   openModal(
-    `<div class="eyebrow">WELCOME TO A GREENER EVERYDAY</div><h2>Make yourself at home.</h2><p class="modal-intro">Try the mobile sign-in flow. This preview uses a demo verification code.</p><form data-form="login-phone"><div class="form-grid"><label class="field full"><span>Your name</span><input name="name" autocomplete="name" placeholder="Garden lover" required maxlength="60"></label><label class="field full"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" required placeholder="10-digit mobile number"></label><label class="field full"><span>Email (optional)</span><input name="email" type="email" autocomplete="email" placeholder="you@example.com"></label></div><div class="modal-footer"><small>No SMS is sent in this preview.</small><button class="btn btn-primary">Get demo code ${icon("arrow")}</button></div></form>`,
+    `<div class="eyebrow">WELCOME TO A GREENER EVERYDAY</div><h2>Sign in to your green space.</h2><p class="modal-intro">Enter your email or mobile to access your Customer Portal, orders & garden visits.</p><form data-form="login-phone"><div class="form-grid"><label class="field full"><span>Email address</span><input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><label class="field full"><span>Your name</span><input name="name" autocomplete="name" placeholder="Garden lover" required maxlength="60"></label><label class="field full"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" required placeholder="10-digit mobile number"></label></div><div class="modal-footer"><small>Instant access to Customer Portal.</small><button class="btn btn-primary">Enter Customer Portal ${icon("arrow")}</button></div></form>`,
   );
 }
 function registration() {
@@ -1635,8 +1656,15 @@ document.addEventListener("submit", (event) => {
     state.user = modalState.form;
     persist();
     closeModal();
+    if (isSuperAdminUser(state.user.email)) {
+      isSuperAdminUnlocked = true;
+      location.hash = "super-admin";
+      toast(`Welcome Super Admin, ${state.user.name}. Master panel unlocked.`);
+    } else {
+      location.hash = "customer-admin";
+      toast(`Welcome, ${state.user.name}. Opening your Customer Portal.`);
+    }
     render();
-    toast(`Welcome, ${state.user.name}. Let’s grow something.`);
     return;
   }
   if (type === "location") {
@@ -1788,12 +1816,23 @@ document.addEventListener("submit", (event) => {
     return;
   }
   if (type === "super-admin-auth") {
-    if (f.pin === "8888") {
+    const inputEmail = f.email ? f.email.trim() : "";
+    if (isSuperAdminUser(inputEmail) || f.pin === "8888") {
       isSuperAdminUnlocked = true;
+      if (inputEmail && !state.user) {
+        state.user = { name: "Super Admin", email: inputEmail, phone: "9999999999" };
+        persist();
+      }
       toast("Super Admin unlocked successfully.");
       render();
     } else {
-      toast("Invalid Super Admin PIN. Default demo PIN is 8888.");
+      if (inputEmail) {
+        toast(`'${inputEmail}' is not a Super Admin account. Redirecting to Customer Portal.`);
+        location.hash = "customer-admin";
+        render();
+      } else {
+        toast("Invalid Super Admin PIN or email.");
+      }
     }
     return;
   }
