@@ -714,22 +714,108 @@ function closeModal() {
 function showCart() {
   modalState = { title: "Your shopping bag" };
   lastFocus = document.activeElement;
+
+  // Find similar or recommended products based on categories in the cart
+  const cartIds = state.cart.map((c) => c.id);
+  const cartCategories = state.cart.map((c) => product(c.id)?.category).filter(Boolean);
+  
+  let similarProducts = state.products.filter(
+    (p) => !cartIds.includes(p.id) && (cartCategories.includes(p.category) || !cartCategories.length)
+  );
+  if (!similarProducts.length) {
+    similarProducts = state.products.filter((p) => !cartIds.includes(p.id));
+  }
+  const suggestions = similarProducts.slice(0, 3);
+
   $("#modal-root").innerHTML =
-    `<div class="drawer-overlay" data-action="close-overlay"><aside class="cart-drawer" role="dialog" aria-modal="true" aria-label="Your shopping bag" tabindex="-1"><button class="modal-close" data-action="close" aria-label="Close bag">${icon("close")}</button><div class="eyebrow">STRAIGHT FROM THE NURSERY</div><h2 style="margin-top:16px">Your little green bag.</h2><p>${cartCount()} ${cartCount() === 1 ? "companion" : "companions"}, ready for a new home.</p><div class="cart-items">${
-      state.cart.length
-        ? state.cart
-            .map((c) => {
-              const p = product(c.id);
-              return `<div class="cart-item"><img src="${asset(p.image)}" alt="${esc(p.name)}"><div class="cart-item-info"><h3>${esc(p.name)}</h3><div class="price">${money(p.price * c.qty)}</div><div class="quantity"><button data-action="cart-qty" data-id="${p.id}" data-change="-1" aria-label="Reduce quantity of ${esc(p.name)}">−</button><span>${c.qty}</span><button data-action="cart-qty" data-id="${p.id}" data-change="1" aria-label="Increase quantity of ${esc(p.name)}">+</button></div><button class="remove-item" data-action="cart-remove" data-id="${p.id}">Remove</button></div></div>`;
-            })
-            .join("")
-        : empty(
-            "Room for something green.",
-            "A new companion is just a click away.",
-            "shop",
-            "Explore our plants",
-          )
-    }</div>${state.cart.length ? `<div class="cart-summary"><div class="summary-line"><span>Subtotal</span><span>${money(cartTotal())}</span></div><div class="summary-line"><span>Delivery</span><span>${delivery() ? money(delivery()) : "On us"}</span></div><div class="summary-line total"><span>Total</span><span>${money(cartTotal() + delivery())}</span></div><button class="btn btn-primary" data-action="checkout">Continue to checkout ${icon("arrow")}</button><p>Complimentary delivery on demo orders above ${money(1000)}.</p></div>` : ""}</aside></div>`;
+    `<div class="drawer-overlay" data-action="close-overlay">
+      <aside class="cart-drawer" role="dialog" aria-modal="true" aria-label="Your shopping bag" tabindex="-1">
+        <button class="modal-close" data-action="close" aria-label="Close bag">${icon("close")}</button>
+        <div class="cart-drawer-header">
+          <div class="eyebrow">STRAIGHT FROM THE NURSERY</div>
+          <h2>Your green bag.</h2>
+          <div class="cart-header-row">
+            <p>${cartCount()} ${cartCount() === 1 ? "companion" : "companions"}, ready for a new home.</p>
+            <a href="#shop" class="add-more-link" data-action="close-link">${icon("plus")} Add more products</a>
+          </div>
+        </div>
+
+        <div class="cart-items">
+          ${
+            state.cart.length
+              ? state.cart
+                  .map((c) => {
+                    const p = product(c.id);
+                    return `<div class="cart-item">
+                      <img src="${asset(p.image)}" alt="${esc(p.name)}">
+                      <div class="cart-item-info">
+                        <h3>${esc(p.name)}</h3>
+                        <small style="color:var(--muted);display:block;margin-bottom:4px">${esc(p.category)}</small>
+                        <div class="price">${money(p.price * c.qty)}</div>
+                        <div class="quantity">
+                          <button data-action="cart-qty" data-id="${p.id}" data-change="-1" aria-label="Reduce quantity of ${esc(p.name)}">−</button>
+                          <span>${c.qty}</span>
+                          <button data-action="cart-qty" data-id="${p.id}" data-change="1" aria-label="Increase quantity of ${esc(p.name)}">+</button>
+                        </div>
+                        <button class="remove-item" data-action="cart-remove" data-id="${p.id}">Remove</button>
+                      </div>
+                    </div>`;
+                  })
+                  .join("")
+              : empty(
+                  "Room for something green.",
+                  "Your shopping bag is empty. Explore our collection of plants and garden essentials.",
+                  "shop",
+                  "Explore our plants",
+                )
+          }
+
+          ${
+            suggestions.length
+              ? `<div class="cart-similar-section">
+                  <div class="cart-similar-title">
+                    <h4>Similar companions you might like</h4>
+                    <span class="tag">Curated</span>
+                  </div>
+                  <div class="cart-similar-list">
+                    ${suggestions
+                      .map(
+                        (sp) => `
+                      <div class="similar-item">
+                        <img src="${asset(sp.image)}" alt="${esc(sp.name)}">
+                        <div class="similar-info">
+                          <h5>${esc(sp.name)}</h5>
+                          <small>${esc(sp.category)} · ${money(sp.price)}</small>
+                        </div>
+                        <button class="btn btn-soft btn-small" data-action="cart-add-similar" data-id="${sp.id}" aria-label="Add ${esc(sp.name)}">
+                          ${icon("plus")} Add
+                        </button>
+                      </div>
+                    `,
+                      )
+                      .join("")}
+                  </div>
+                </div>`
+              : ""
+          }
+        </div>
+
+        ${
+          state.cart.length
+            ? `<div class="cart-summary">
+                <div class="summary-line"><span>Subtotal</span><span>${money(cartTotal())}</span></div>
+                <div class="summary-line"><span>Delivery</span><span>${delivery() ? money(delivery()) : "On us"}</span></div>
+                <div class="summary-line total"><span>Total</span><span>${money(cartTotal() + delivery())}</span></div>
+                <button class="btn btn-primary" data-action="checkout">Continue to checkout ${icon("arrow")}</button>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+                  <p style="margin:0;font-size:9px;color:var(--muted)">Free delivery on orders above ${money(1000)}.</p>
+                  <a href="#shop" class="text-link" data-action="close-link" style="font-size:10px">+ Add more</a>
+                </div>
+              </div>`
+            : ""
+        }
+      </aside>
+    </div>`;
   document.body.classList.add("modal-open");
   $("#app").inert = true;
   setTimeout(() => $(".cart-drawer")?.focus(), 0);
@@ -1043,6 +1129,10 @@ document.addEventListener("click", (event) => {
       state.cart = state.cart.filter((c) => c.id !== id);
       persist();
       updateCartCount();
+      showCart();
+      break;
+    case "cart-add-similar":
+      addCart(id);
       showCart();
       break;
     case "checkout":
