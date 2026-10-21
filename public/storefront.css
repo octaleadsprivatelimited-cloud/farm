@@ -636,3 +636,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: #64a
   .hero-carousel::after { display: none; }
 }
 @media (max-width: 600px) { .hero-carousel { aspect-ratio: 4 / 3; } }
+@media (max-width: 900px) {
+  .nursery-benefits,
+  .hero-controls .hero-arrow,
+  .hero-controls .hero-pause { display: none; }
+}
