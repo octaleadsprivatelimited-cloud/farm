@@ -14,6 +14,7 @@ import { rows, one } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { obj, str, integer } from "../schema.js";
 import { must } from "../errors.js";
+import { heroContent } from "./hero.js";
 const maxSize = 8 * 1024 * 1024;
 export function validFile(bytes, type) {
   if (type === "image/jpeg")
@@ -254,6 +255,13 @@ export async function uploadRoutes(app) {
           [`/api/uploads/${u.id}/content`, `/api/uploads/${u.id}/content`],
         ),
       );
+    if (!allowed && u.kind === "catalog") {
+      const content = await heroContent(app);
+      const url = `/api/uploads/${u.id}/content`;
+      allowed = content.slides.some(
+        (s) => s.image === url || s.mobileImage === url,
+      );
+    }
     if (!allowed && req.user) {
       allowed = Boolean(
         await one(

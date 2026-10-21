@@ -1510,3 +1510,156 @@ test("wishlist capacity remains bounded under simultaneous additions and saves a
     200,
   );
 });
+
+test("homepage banners publish atomically with ordering, visibility, validation and an audit trail", async () => {
+  const current = (await call(admin, "GET", "/api/admin/hero")).json();
+  const slides = [
+    {
+      id: "garden-first",
+      image: "garden-design.jpg",
+      mobileImage: "garden-care.jpg",
+      alt: "Nursery garden path",
+      link: "#services",
+      active: true,
+    },
+    {
+      id: "hidden-second",
+      image: "plant-monstera.jpg",
+      mobileImage: "",
+      alt: "Hidden plant banner",
+      link: "#shop",
+      active: false,
+    },
+    {
+      id: "plants-third",
+      image: "terracotta-pots.jpg",
+      mobileImage: "",
+      alt: "Terracotta pots",
+      link: "#shop",
+      active: true,
+    },
+  ];
+  const body = {
+    revision: current.revision,
+    autoplay: true,
+    intervalSeconds: 8,
+    slides,
+  };
+  assert.equal((await call(a, "PUT", "/api/admin/hero", body)).statusCode, 403);
+  assert.equal((await call(a, "GET", "/api/admin/hero")).statusCode, 403);
+  assert.equal(
+    (await call(admin, "PUT", "/api/admin/hero", body)).statusCode,
+    200,
+  );
+  const published = (await call(null, "GET", "/api/hero")).json();
+  assert.deepEqual(
+    published.slides.map((s) => s.id),
+    ["garden-first", "plants-third"],
+  );
+  assert.equal(published.slides[0].mobileImage, "garden-care.jpg");
+  assert.equal(published.intervalSeconds, 8);
+  assert.deepEqual(
+    (await call(null, "GET", "/api/bootstrap")).json().hero,
+    published,
+  );
+  assert.equal(
+    (await call(admin, "GET", "/api/admin/hero")).json().slides.length,
+    3,
+  );
+  const latest = { ...body, revision: published.revision };
+  for (const invalid of [
+    { ...latest, slides: slides.map((s) => ({ ...s, active: false })) },
+    { ...latest, slides: [{ ...slides[0], image: "missing-hero.jpg" }] },
+    { ...latest, slides: [{ ...slides[0], link: "javascript:alert(1)" }] },
+    { ...latest, slides: [slides[0], slides[0]] },
+    {
+      ...latest,
+      slides: Array.from({ length: 9 }, (_, i) => ({
+        ...slides[0],
+        id: "banner-" + i,
+      })),
+    },
+  ])
+    assert.equal(
+      (await call(admin, "PUT", "/api/admin/hero", invalid)).statusCode,
+      400,
+    );
+  assert.equal(
+    (await call(admin, "PUT", "/api/admin/hero", body)).statusCode,
+    409,
+  );
+  assert.ok(
+    await one(
+      db,
+      "SELECT seq FROM audit_logs WHERE action='hero.update' AND actor_id=?",
+      [admin.id],
+    ),
+  );
+});
+
+test("simultaneous banner editors cannot overwrite a newer publication", async () => {
+  const content = (await call(admin, "GET", "/api/admin/hero")).json();
+  const result = await Promise.all([
+    call(admin, "PUT", "/api/admin/hero", { ...content, intervalSeconds: 9 }),
+    call(admin, "PUT", "/api/admin/hero", { ...content, intervalSeconds: 10 }),
+  ]);
+  assert.deepEqual(result.map((r) => r.statusCode).sort(), [200, 409]);
+});
+
+test("uploaded banner photos are public only while referenced by a visible banner", async () => {
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const init = await call(admin, "POST", "/api/uploads/presign", {
+    name: "hero-fixture.png",
+    kind: "catalog",
+    contentType: "image/png",
+    size: bytes.length,
+  });
+  assert.equal(init.statusCode, 201, init.body);
+  const upload = init.json();
+  assert.equal(
+    (
+      await call(admin, "PUT", upload.uploadUrl, bytes, {
+        "content-type": "image/png",
+      })
+    ).statusCode,
+    200,
+  );
+  assert.equal(
+    (await call(admin, "POST", `/api/uploads/${upload.id}/complete`))
+      .statusCode,
+    200,
+  );
+  const url = `/api/uploads/${upload.id}/content`;
+  assert.equal((await call(null, "GET", url)).statusCode, 404);
+  const content = (await call(admin, "GET", "/api/admin/hero")).json();
+  content.slides = [
+    {
+      id: "uploaded-banner",
+      image: url,
+      mobileImage: url,
+      alt: "Uploaded nursery banner",
+      link: "#shop",
+      active: true,
+    },
+    {
+      id: "fallback-banner",
+      image: "garden-hero.png",
+      mobileImage: "",
+      alt: "Garden",
+      link: "#services",
+      active: true,
+    },
+  ];
+  assert.equal(
+    (await call(admin, "PUT", "/api/admin/hero", content)).statusCode,
+    200,
+  );
+  assert.equal((await call(null, "GET", url)).statusCode, 200);
+  content.revision++;
+  content.slides[0].active = false;
+  assert.equal(
+    (await call(admin, "PUT", "/api/admin/hero", content)).statusCode,
+    200,
+  );
+  assert.equal((await call(null, "GET", url)).statusCode, 404);
+});

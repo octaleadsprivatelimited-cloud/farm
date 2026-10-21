@@ -29,3 +29,5 @@ Manrope, DM Sans and Playfair Display fonts are self-hosted from Google Fonts. T
 - **Visual reference:** https://nurserylive.com/ — search-led header, category navigation, visual collections and product presentation. The implementation retains Kaushik Nursery branding and the proposal's services-first structure.
 - **`terracotta-pots.jpg`:** https://images.unsplash.com/photo-1547816818-46732a278997 — photograph of terracotta plant pots, self-hosted as illustrative category and product imagery. Source page: https://unsplash.com/photos/MyuuJ0s0OPQ.
 - All other photography and self-hosted fonts are retained from the cloned repository. No NurseryLive logos or brand assets are used.
+
+Motion's self-hosted browser animation runtime is generated from the locked `motion` npm dependency (`public/vendor/motion.js`). Its MIT license is included at `public/vendor/MOTION-LICENSE.txt`. The build refreshes both files from the installed package.

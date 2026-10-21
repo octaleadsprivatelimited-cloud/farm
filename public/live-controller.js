@@ -63,6 +63,10 @@ export function installLiveController(ui) {
     });
   }
   const actions = new Set([
+    "hero-add",
+    "hero-remove",
+    "hero-up",
+    "hero-down",
     "change-password",
     "confirm-refund",
     "retry-job",
@@ -134,6 +138,10 @@ export function installLiveController(ui) {
           return;
         }
         if (loginRequired()) return;
+        if (action.startsWith("hero-")) {
+          ui.changeBannerDraft(action, id);
+          return;
+        }
         if (action === "change-password") {
           ui.passwordForm();
           return;
@@ -319,6 +327,7 @@ export function installLiveController(ui) {
     true,
   );
   const forms = new Set([
+    "hero-editor",
     "business-profile",
     "change-password",
     "admin-user-search",
@@ -363,6 +372,7 @@ export function installLiveController(ui) {
       const fd = new FormData(form),
         f = Object.fromEntries(fd);
       try {
+        if (type === "hero-editor") await ui.saveBannerDraft(form);
         if (type === "auth-login" || type === "auth-register") {
           const guestCart = s().user ? [] : [...s().cart],
             guestFavorites = s().user ? [] : [...s().favorites];

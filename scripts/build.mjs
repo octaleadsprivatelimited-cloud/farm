@@ -1,7 +1,12 @@
 import { cp, mkdir, rm, access } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+await mkdir("public/vendor", { recursive: true });
+await cp("node_modules/motion/dist/motion.js", "public/vendor/motion.js");
+await cp("node_modules/motion/LICENSE.md", "public/vendor/MOTION-LICENSE.txt");
 for (const file of [
   "public/app.js",
+  "public/banner-admin.js",
+  "public/storefront-interactions.js",
   "public/data.js",
   "public/api.js",
   "public/live-controller.js",

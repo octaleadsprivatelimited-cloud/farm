@@ -23,6 +23,7 @@ Create your administrator with `npm run admin:create -- --email admin@your-domai
 
 - Password sign-in, optional real SMS OTP, password reset via SMTP, HttpOnly sessions, mobile bearer tokens, CSRF/origin checks and shared rate limits.
 - Product categories, search/sorting, stock, saved addresses, wishlist and cart persisted in MySQL.
+- Administrator-managed desktop/mobile hero banners, ordered slides, uploads, visibility, links and rotation timing. Responsive leaf-green storefront, auto-hiding announcement bar, sticky main header and Motion-animated mobile navigation.
 - Server-priced checkout, transactional inventory reservations, idempotency, reservation expiry, own-order tracking/cancellation and administrator fulfilment.
 - Razorpay order creation, captured-payment verification, signed replay-safe webhooks and durable refund reconciliation. Product orders and service bookings have separate payment records.
 - Service packages, reference uploads, future visit scheduling, approved partner matching by city/category/availability, configurable recipient limit (default six), rotation and atomic lead acceptance.

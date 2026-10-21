@@ -29,6 +29,7 @@ import { paymentRoutes } from "./routes/payments.js";
 import { adminRoutes } from "./routes/admin.js";
 import { pushRoutes, pushSender } from "./push.js";
 import { portalRoutes, publicBusiness } from "./routes/portal.js";
+import { heroRoutes, heroContent } from "./routes/hero.js";
 import { uploadRoutes } from "./routes/uploads.js";
 export async function buildApp({
   config: provided,
@@ -276,9 +277,10 @@ export async function buildApp({
   await pushRoutes(app);
   await adminRoutes(app);
   await portalRoutes(app);
+  await heroRoutes(app);
   await app.register(uploadRoutes);
   app.get("/api/bootstrap", async (req) => {
-    const [products, services, categories, serviceCategories, business] =
+    const [products, services, categories, serviceCategories, business, hero] =
       await Promise.all([
         catalogProducts(app, { limit: 100 }),
         catalogServices(app),
@@ -295,8 +297,10 @@ export async function buildApp({
           ),
         ),
         publicBusiness(app),
+        heroContent(app),
       ]);
     return {
+      hero,
       business,
       products: products.items,
       services,

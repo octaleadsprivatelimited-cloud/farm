@@ -1,3 +1,12 @@
+import {
+  mountStorefrontInteractions,
+  closeMobileNavigation,
+} from "./storefront-interactions.js";
+import {
+  bannerEditor,
+  changeBannerDraft,
+  saveBannerDraft,
+} from "./banner-admin.js";
 import { policies } from "./policies.js";
 import { api } from "./api.js";
 import { installLiveController } from "./live-controller.js";
@@ -141,7 +150,8 @@ let route = "home",
   lastFocus = null,
   toastTimer,
   introTimer,
-  observer;
+  observer,
+  disposeStorefront = () => {};
 
 const product = (id) =>
   state.products.find((p) => p.id === id) ||
@@ -163,12 +173,12 @@ const brand = () =>
   `<a href="#home" class="brand" aria-label="Kaushik Nursery home"><svg class="brand-icon" viewBox="0 0 40 42" fill="none"><path d="M8 30C4 14 19 4 34 5c1 14-10 27-26 25Z" fill="#d1dec1"/><path d="M7 36C11 25 18 17 28 10M13 25l1-12m5 5 12 1" stroke="#315239" stroke-width="1.6" stroke-linecap="round"/></svg><span class="brand-words">kaushik<span style="font-weight:400">.</span><small>NURSERY & GARDENS</small></span></a>`;
 function header() {
   const collections = state.categories.slice(0, 5);
-  return `${state.paymentMode === "test" ? '<div class="environment-notice">Test environment · No money is collected</div>' : ""}<a class="skip-content" href="#main-content">Skip to content</a>
+  return `<div class="store-chrome">${state.paymentMode === "test" ? '<div class="environment-notice">Test environment · No money is collected</div>' : ""}<a class="skip-content" href="#main-content">Skip to content</a>
     <div class="store-announcement"><div class="container announcement-inner"><span>${icon("leaf")} A little greener. A lot better.</span><span class="announcement-offer">From our nursery to your home · Free delivery on orders ₹1,000+</span><div><button data-action="support">Help & care</button><a href="#orders">Track your order ${icon("arrow")}</a></div></div></div>
     <header class="site-header"><div class="container header-inner">${brand()}
       <form class="header-search" data-form="catalog-search" role="search"><label class="hidden" for="header-query">Search nursery products</label><input id="header-query" name="query" type="search" aria-label="Search nursery products" value="${route === "shop" ? esc(shopQuery) : ""}" placeholder="Find your next plant, pot or garden essential…" autocomplete="off"><button aria-label="Search products" type="submit">${icon("search")}</button></form>
-      <div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}<span><small>Your green space</small>${esc(state.city)} ${icon("down")}</span></button><button class="icon-btn" data-action="notifications" aria-label="Your notifications">${icon("bell")}</button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div>
-    </div><div class="navigation-border"><nav class="container main-nav" aria-label="Main navigation"><a href="#home" class="${route === "home" ? "active" : ""}">Home</a><a href="#services" class="nav-services ${route === "services" ? "active" : ""}">${icon("garden")} Garden services</a><button data-action="browse-category" data-id="All plants" class="${route === "shop" && shopCategory === "All plants" ? "active" : ""}">All products ${icon("down")}</button>${collections.map((c) => `<button data-action="browse-category" data-id="${esc(c)}" class="${route === "shop" && shopCategory === c ? "active" : ""}">${esc(c)}</button>`).join("")}<a class="nav-partner" href="#partner">Become a partner ${icon("up")}</a></nav></div></header>`;
+      <div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}<span><small>Your green space</small>${esc(state.city)} ${icon("down")}</span></button><button class="icon-btn" data-action="notifications" aria-label="Your notifications">${icon("bell")}</button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Open navigation" aria-controls="mobile-navigation" aria-expanded="false"><span class="menu-toggle-lines" aria-hidden="true"><span></span><span></span><span></span></span></button></div>
+    </div><div class="navigation-border"><nav class="container main-nav" aria-label="Main navigation"><a href="#home" class="${route === "home" ? "active" : ""}">Home</a><a href="#services" class="nav-services ${route === "services" ? "active" : ""}">${icon("garden")} Garden services</a><button data-action="browse-category" data-id="All plants" class="${route === "shop" && shopCategory === "All plants" ? "active" : ""}">All products ${icon("down")}</button>${collections.map((c) => `<button data-action="browse-category" data-id="${esc(c)}" class="${route === "shop" && shopCategory === c ? "active" : ""}">${esc(c)}</button>`).join("")}<a class="nav-partner" href="#partner">Become a partner ${icon("up")}</a></nav></div></header><button type="button" class="mobile-nav-scrim" aria-label="Dismiss navigation" hidden></button><nav id="mobile-navigation" class="mobile-nav-panel" aria-label="Mobile navigation" hidden inert><div class="mobile-nav-heading"><span>Explore the nursery</span><button class="icon-btn" data-action="mobile-nav-close" aria-label="Close mobile menu">${icon("close")}</button></div><a class="mobile-nav-item" href="#home">${icon("leaf")} Home ${icon("arrow")}</a><a class="mobile-nav-item" href="#services">${icon("garden")} Garden services ${icon("arrow")}</a><button class="mobile-nav-item" data-action="browse-category" data-id="All plants">${icon("bag")} All products ${icon("arrow")}</button><div class="mobile-nav-categories">${state.categories.map((c) => `<button class="mobile-nav-item" data-action="browse-category" data-id="${esc(c)}">${esc(c)} ${icon("arrow")}</button>`).join("")}</div><div class="mobile-nav-accounts"><a class="mobile-nav-item" href="#customer-admin">${icon("user")} Your account ${icon("arrow")}</a><a class="mobile-nav-item" href="#orders">${icon("truck")} Orders & bookings ${icon("arrow")}</a><a class="mobile-nav-item" href="#partner">${icon("tools")} Become a partner ${icon("arrow")}</a><button class="mobile-nav-item" data-action="location">${icon("pin")} ${esc(state.city)} · Change city ${icon("arrow")}</button></div></nav></div>`;
 }
 function footer() {
   return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>A plant for every corner.<br>A little care for every garden.</p><button class="footer-support" data-action="support">${icon("leaf")} Let’s help your garden grow ${icon("arrow")}</button></div><div class="footer-col"><h4>Explore the nursery</h4><a href="#services">Garden services</a><button data-action="browse-category" data-id="All plants">Buy our products</button><button data-action="browse-category" data-id="Indoor plants">Indoor plants</button><button data-action="browse-category" data-id="Pots & planters">Pots & planters</button><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Your green space</h4><a href="#orders">Orders & service bookings</a><button data-action="account">Your account</button><a href="#customer-admin">Customer portal</a><a href="#partner">Service partner portal</a><button data-action="app-info">Our Android apps</button></div><div class="footer-col"><h4>Here to help</h4><button data-action="legal" data-id="contact">Contact us</button><button data-action="legal" data-id="shipping">Shipping & delivery</button><button data-action="legal" data-id="refund">Cancellations & returns</button><button data-action="legal" data-id="privacy">Privacy policy</button><button data-action="legal" data-id="terms">Terms & conditions</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery. Good things take root.</span><div><a href="#super-admin">Admin workspace</a><button data-action="replay">${icon("replay")}A moment of green</button></div></div></div></footer>`;
@@ -180,6 +190,22 @@ function productCard(p) {
 }
 function serviceCard(s) {
   return `<button class="service-card" data-action="book" data-id="${s.id}"><div class="service-photo"><img src="${asset(s.image)}" alt="${esc(s.name)}" loading="lazy"><span class="photo-label">${esc(s.label)}</span></div><div class="service-card-content"><h3>${esc(s.name)}</h3><p>${esc(s.description)}</p><div class="card-bottom"><span>From <strong>${money(s.price)}</strong></span><span class="circle-arrow">${icon("up")}</span></div></div></button>`;
+}
+function heroBanner() {
+  const content = state.hero || {
+    autoplay: true,
+    intervalSeconds: 6,
+    slides: [
+      {
+        id: "nursery-garden",
+        image: "garden-hero.png",
+        alt: "Sunlit nursery garden",
+        link: "#services",
+      },
+    ],
+  };
+  const slides = content.slides;
+  return `<div class="welcome-image hero-carousel" data-hero-carousel data-autoplay="${content.autoplay}" data-interval="${content.intervalSeconds}" role="region" aria-roledescription="carousel" aria-label="Nursery banners"><h1 class="mobile-hero-title">Kaushik Nursery plants and garden services</h1>${slides.map((s, i) => `<a class="hero-slide" data-hero-slide href="${esc(s.link)}" aria-label="${esc(s.alt)}" aria-hidden="${i !== 0}" ${i ? "hidden inert" : ""}><picture>${s.mobileImage ? `<source media="(max-width: 900px)" srcset="${asset(s.mobileImage)}">` : ""}<img src="${asset(s.image)}" alt="${esc(s.alt)}" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} draggable="false"></picture></a>`).join("")}${slides.length > 1 ? `<div class="hero-controls"><button type="button" class="hero-arrow" data-hero-direction="-1" aria-label="Previous banner">${icon("arrow")}</button><div class="hero-dots" role="group" aria-label="Choose banner">${slides.map((s, i) => `<button type="button" data-hero-index="${i}" aria-label="Show banner ${i + 1}" aria-pressed="${i === 0}"></button>`).join("")}</div><button type="button" class="hero-pause" data-hero-pause aria-label="${content.autoplay ? "Pause" : "Play"} banner rotation" aria-pressed="${!content.autoplay}"><span aria-hidden="true"></span></button><button type="button" class="hero-arrow" data-hero-direction="1" aria-label="Next banner">${icon("arrow")}</button></div>` : ""}</div>`;
 }
 function home() {
   const categories = [
@@ -226,7 +252,7 @@ function home() {
       "Pots & planters",
     ],
   ];
-  return `<main id="main-content" tabindex="-1"><section class="container welcome-section"><div class="garden-welcome"><div class="welcome-copy"><div class="welcome-kicker">${icon("leaf")} A LITTLE CLOSER TO NATURE</div><h1>A greener space.<br>A <em>happier you.</em></h1><p>From your first little plant to the garden you’ve always imagined. Let’s grow something beautiful, together.</p><div class="welcome-actions"><a href="#services" class="btn btn-primary">Explore garden services ${icon("arrow")}</a><button class="welcome-shop" data-action="browse-category" data-id="All plants">Shop our plants ${icon("arrow")}</button></div><div class="welcome-note"><span class="tiny-leaves">${icon("leaf")}${icon("leaf")}${icon("leaf")}</span><span>Thoughtfully grown. Lovingly cared for.</span></div></div><div class="welcome-image"><img src="${asset("garden-hero.png")}" alt="Sunlit garden courtyard with lush greenery and terracotta pots" fetchpriority="high"><div class="image-note">${icon("garden")} <span>Your everyday,<br><strong>a little more alive.</strong></span></div></div></div></section>
+  return `<main id="main-content" tabindex="-1"><section class="container welcome-section"><div class="garden-welcome"><div class="welcome-copy"><div class="welcome-kicker">${icon("leaf")} A LITTLE CLOSER TO NATURE</div><h1>A greener space.<br>A <em>happier you.</em></h1><p>From your first little plant to the garden you’ve always imagined. Let’s grow something beautiful, together.</p><div class="welcome-actions"><a href="#services" class="btn btn-primary">Explore garden services ${icon("arrow")}</a><button class="welcome-shop" data-action="browse-category" data-id="All plants">Shop our plants ${icon("arrow")}</button></div><div class="welcome-note"><span class="tiny-leaves">${icon("leaf")}${icon("leaf")}${icon("leaf")}</span><span>Thoughtfully grown. Lovingly cared for.</span></div></div>${heroBanner()}</div></section>
     <section class="container nursery-benefits" aria-label="The Kaushik promise">${[
       ["leaf", "Grown with care", "Plants straight from our nursery"],
       [
@@ -583,6 +609,7 @@ function shell(kind) {
       ["settings", "settings", "Distribution Rules"],
       ["jobs", "shield", "System jobs"],
       ["business", "user", "Business details"],
+      ["hero", "leaf", "Homepage banners"],
     ];
   }
 
@@ -750,8 +777,11 @@ function adminView() {
     settings: "Fair leads. Thoughtful matches.",
     jobs: "Background processing & recovery.",
     business: "Your public nursery details.",
+    hero: "The first glimpse of your nursery.",
   };
   let out = `<div class="workspace-heading"><div><h1>${names[workspaceTab]}</h1><p>Kaushik Nursery · Administration · Live platform data</p></div>${workspaceTab === "products" ? '<button class="btn btn-primary btn-small" data-action="product-edit" data-id="new">' + icon("plus") + "Add product</button>" : workspaceTab === "services" ? '<button class="btn btn-primary btn-small" data-action="service-edit" data-id="new">' + icon("plus") + "Add service</button>" : `<span class="tag">${dateLabel(today())}</span>`}</div>`;
+  if (workspaceTab === "hero")
+    return out + bannerEditor(state, { esc, asset, assetOptions });
   if (workspaceTab === "overview")
     return (
       out +
@@ -917,6 +947,7 @@ function partnersTable(partners) {
   );
 }
 function render(scroll = false) {
+  disposeStorefront();
   observer?.disconnect();
   const isSuperAdminRoute = route === "super-admin" || route === "admin";
   $("#app").innerHTML =
@@ -950,6 +981,7 @@ function render(scroll = false) {
     fetchCatalog();
   }
   addPagination();
+  disposeStorefront = mountStorefrontInteractions();
   if (backendError)
     $("#app").insertAdjacentHTML(
       "afterbegin",
@@ -1551,7 +1583,7 @@ document.addEventListener("click", (event) => {
         40,
       );
     } else document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    $(".main-nav")?.classList.remove("open");
+    closeMobileNavigation();
     return;
   }
   const a = el.dataset.action,
@@ -1572,12 +1604,11 @@ document.addEventListener("click", (event) => {
       el.setAttribute("aria-expanded", !menu.classList.contains("hidden"));
       break;
     }
-    case "mobile-nav": {
-      let nav = $(".main-nav");
-      nav.classList.toggle("open");
-      el.setAttribute("aria-expanded", nav.classList.contains("open"));
+    case "mobile-nav":
       break;
-    }
+    case "mobile-nav-close":
+      closeMobileNavigation(true);
+      break;
     case "close-overlay":
       if (event.target === el) closeModal();
       break;
@@ -1869,7 +1900,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeModal();
     $(".workspace-menu")?.classList.add("hidden");
-    $(".main-nav")?.classList.remove("open");
+    closeMobileNavigation(true);
     if (!$("#opening").classList.contains("hide")) endIntro();
   }
   if (
@@ -1939,6 +1970,11 @@ installLiveController({
   refundConfirmation,
   showAssign,
   changeServicePackages,
+  changeBannerDraft: (action, index) => {
+    changeBannerDraft(state, action, index);
+    render();
+  },
+  saveBannerDraft: (form) => saveBannerDraft(state, form),
   searchAdminUsers,
   render,
   toast,
@@ -2040,6 +2076,8 @@ async function refreshState() {
     paymentMode: boot.paymentMode,
     smsEnabled: boot.smsEnabled,
     business: boot.business,
+    hero: boot.hero,
+    heroDraft: null,
     categories: boot.categories.map((c) => c.name),
     serviceCategories: boot.serviceCategories.map((c) => c.name),
     orders: [],
@@ -2124,6 +2162,7 @@ async function refreshState() {
         categories,
         serviceCategories,
         jobs,
+        hero,
       ] = await Promise.all([
         api.get("/admin/users?limit=25"),
         api.get("/admin/partners?limit=25"),
@@ -2139,6 +2178,7 @@ async function refreshState() {
         api.get("/admin/categories"),
         api.get("/admin/service-categories"),
         api.get("/admin/jobs?limit=25"),
+        api.get("/admin/hero"),
       ]);
       Object.assign(next, {
         users: users.items,
@@ -2156,6 +2196,7 @@ async function refreshState() {
         adminCategories: categories.items,
         adminServiceCategories: serviceCategories.items,
         adminJobs: jobs.items,
+        adminHero: hero,
         adminUserQuery: "",
       });
       Object.assign(next.cursors, {
