@@ -1,11 +1,6 @@
-import {
-  initialProducts,
-  initialServices,
-  initialPartners,
-  initialLeads,
-} from "./data.js";
 import { policies } from "./policies.js";
-import { firebaseService } from "./firebase.js";
+import { api } from "./api.js";
+import { installLiveController } from "./live-controller.js";
 const $ = (q, root = document) => root.querySelector(q);
 const esc = (v) =>
   String(v ?? "").replace(
@@ -21,7 +16,7 @@ const money = (v) =>
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(v);
-const asset = (n) => `./assets/${n}`;
+const asset = (n) => (n?.startsWith("/api/") ? n : `./assets/${n}`);
 const dateLabel = (d) =>
   d
     ? new Date(d + "T12:00:00").toLocaleDateString("en-IN", {
@@ -78,56 +73,61 @@ const iconPaths = {
 };
 const icon = (n) =>
   `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${iconPaths[n] || iconPaths.leaf}"/></svg>`;
-let saved;
+let preferences = {};
 try {
-  saved = JSON.parse(localStorage.getItem("kaushik-preview-v1"));
+  preferences =
+    JSON.parse(localStorage.getItem("kaushik-local-preferences-v2")) || {};
 } catch {}
-let state =
-  saved?.version === 1
-    ? saved
-    : {
-        version: 1,
-        products: initialProducts,
-        services: initialServices,
-        partners: initialPartners,
-        leads: initialLeads,
-        orders: [],
-        cart: [],
-        favorites: [],
-        user: null,
-        city: "Hyderabad",
-        maxPartners: 6,
-        rotation: true,
-        notifications: [],
-        subscribers: [],
-      };
-if (state.catalogRevision !== 2) {
-  for (const p of state.products) {
-    const seed = initialProducts.find((x) => x.id === p.id);
-    if (seed)
-      Object.assign(p, {
-        name: seed.name,
-        image: seed.image,
-        description: seed.description,
-        care: seed.care,
-        water: seed.water,
-      });
-  }
-  for (const item of state.services) {
-    const seed = initialServices.find((x) => x.id === item.id);
-    if (seed) item.image = seed.image;
-  }
-  for (const l of state.leads) {
-    if (!l.customer) l.customer = l.name || "Sample customer";
-  }
-  state.catalogRevision = 2;
-}
+let state = {
+  products: [],
+  services: [],
+  categories: [],
+  serviceCategories: [],
+  partners: [],
+  leads: [],
+  orders: [],
+  users: [],
+  payments: [],
+  cart: [],
+  favorites: [],
+  notifications: [],
+  user: null,
+  city: preferences.city || "Hyderabad",
+  maxPartners: 6,
+  rotation: true,
+  paymentMode: "disabled",
+  cursors: {},
+  stats: {},
+  catalogResults: null,
+};
+state.cart = Array.isArray(preferences.cart)
+  ? preferences.cart
+      .filter(
+        (c) =>
+          typeof c.id === "string" &&
+          Number.isInteger(c.qty) &&
+          c.qty > 0 &&
+          c.qty <= 99,
+      )
+      .slice(0, 50)
+  : [];
+state.favorites = Array.isArray(preferences.favorites)
+  ? preferences.favorites.filter((x) => typeof x === "string").slice(0, 500)
+  : [];
+let backendError = "",
+  catalogSignature = "",
+  catalogTimer;
 const persist = () => {
   try {
-    localStorage.setItem("kaushik-preview-v1", JSON.stringify(state));
-  } catch {
-    toast("Browser storage is unavailable. Changes last for this visit.");
-  }
+    localStorage.setItem(
+      "kaushik-local-preferences-v2",
+      JSON.stringify({
+        city: state.city,
+        cart: state.user ? [] : state.cart,
+        favorites: state.user ? [] : state.favorites,
+      }),
+    );
+  } catch {}
 };
 let route = "home",
   shopCategory = "All plants",
@@ -143,52 +143,168 @@ let route = "home",
   introTimer,
   observer;
 
-// Super Admin authorized emails list (can be updated with your exact Gmail)
-let SUPER_ADMIN_EMAILS = [
-  "admin@kaushiknursery.com",
-  "octaleadsprivatelimited@gmail.com",
-];
-const isSuperAdminUser = (email) => {
-  if (!email) return false;
-  return SUPER_ADMIN_EMAILS.map((e) => e.trim().toLowerCase()).includes(
-    email.trim().toLowerCase(),
-  );
-};
-const product = (id) => state.products.find((p) => p.id === id);
+const product = (id) =>
+  state.products.find((p) => p.id === id) ||
+  state.catalogResults?.find((p) => p.id === id) ||
+  state.wishlistProducts?.find((p) => p.id === id);
 const service = (id) => state.services.find((s) => s.id === id);
 const cartTotal = () =>
   state.cart.reduce((sum, c) => sum + (product(c.id)?.price || 0) * c.qty, 0);
 const cartCount = () => state.cart.reduce((sum, c) => sum + c.qty, 0);
 const delivery = () => (cartTotal() >= 1000 ? 0 : 99);
+const cartUnavailable = () =>
+  state.cart.some((c) => {
+    const p = product(c.id);
+    return !p || p.active === false || p.stock < c.qty;
+  });
 const tag = (text) =>
   `<span class="tag ${/Pending|Finding|Request/.test(text) ? "orange" : /Cancel|Reject|Suspend/.test(text) ? "gray" : ""}">${esc(text)}</span>`;
 const brand = () =>
   `<a href="#home" class="brand" aria-label="Kaushik Nursery home"><svg class="brand-icon" viewBox="0 0 40 42" fill="none"><path d="M8 30C4 14 19 4 34 5c1 14-10 27-26 25Z" fill="#d1dec1"/><path d="M7 36C11 25 18 17 28 10M13 25l1-12m5 5 12 1" stroke="#315239" stroke-width="1.6" stroke-linecap="round"/></svg><span class="brand-words">kaushik<span style="font-weight:400">.</span><small>NURSERY & GARDENS</small></span></a>`;
 function header() {
-  return `<div class="topline">A little greener. A lot better. <span></span> Plants & garden services, thoughtfully brought together.</div><header class="site-header"><div class="container header-inner">${brand()}<nav class="main-nav" aria-label="Main navigation"><a class="${route === "services" ? "active" : ""}" href="#services">Garden services</a><a class="${route === "shop" ? "active" : ""}" href="#shop">Our plants</a><a class="${route === "customer-admin" ? "active" : ""}" href="#customer-admin">Customer Portal</a><a class="${route === "orders" ? "active" : ""}" href="#orders">My bookings</a></nav><div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}${esc(state.city)}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div></div></header>`;
+  const collections = state.categories.slice(0, 5);
+  return `${state.paymentMode === "test" ? '<div class="environment-notice">Test environment · No money is collected</div>' : ""}<a class="skip-content" href="#main-content">Skip to content</a>
+    <div class="store-announcement"><div class="container announcement-inner"><span>${icon("leaf")} A little greener. A lot better.</span><span class="announcement-offer">From our nursery to your home · Free delivery on orders ₹1,000+</span><div><button data-action="support">Help & care</button><a href="#orders">Track your order ${icon("arrow")}</a></div></div></div>
+    <header class="site-header"><div class="container header-inner">${brand()}
+      <form class="header-search" data-form="catalog-search" role="search"><label class="hidden" for="header-query">Search nursery products</label><input id="header-query" name="query" type="search" aria-label="Search nursery products" value="${route === "shop" ? esc(shopQuery) : ""}" placeholder="Find your next plant, pot or garden essential…" autocomplete="off"><button aria-label="Search products" type="submit">${icon("search")}</button></form>
+      <div class="header-actions"><button class="location-btn" data-action="location" aria-label="Change city">${icon("pin")}<span><small>Your green space</small>${esc(state.city)} ${icon("down")}</span></button><button class="icon-btn" data-action="notifications" aria-label="Your notifications">${icon("bell")}</button><button class="icon-btn" data-action="account" aria-label="Your account">${icon("user")}</button><button class="icon-btn" data-action="favorites" aria-label="Saved plants">${icon("heart")}</button><button class="icon-btn" data-action="cart" aria-label="Open shopping bag">${icon("bag")}<span class="cart-count ${cartCount() ? "" : "hidden"}">${cartCount()}</span></button><button class="icon-btn mobile-menu" data-action="mobile-nav" aria-label="Toggle navigation" aria-expanded="false">${icon("menu")}</button></div>
+    </div><div class="navigation-border"><nav class="container main-nav" aria-label="Main navigation"><a href="#home" class="${route === "home" ? "active" : ""}">Home</a><a href="#services" class="nav-services ${route === "services" ? "active" : ""}">${icon("garden")} Garden services</a><button data-action="browse-category" data-id="All plants" class="${route === "shop" && shopCategory === "All plants" ? "active" : ""}">All products ${icon("down")}</button>${collections.map((c) => `<button data-action="browse-category" data-id="${esc(c)}" class="${route === "shop" && shopCategory === c ? "active" : ""}">${esc(c)}</button>`).join("")}<a class="nav-partner" href="#partner">Become a partner ${icon("up")}</a></nav></div></header>`;
 }
 function footer() {
-  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>More than plants. A little more life.<br>Thoughtful gardens, from the first leaf to the finishing touch.</p></div><div class="footer-col"><h4>A greener everyday</h4><a href="#services">Garden services</a><a href="#shop">Buy our products</a><a href="#customer-admin">Customer Admin Portal</a><a href="#orders">My orders & bookings</a><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Grow with us</h4><a href="#partner">Become a service partner</a><a href="#super-admin">Super Admin Portal</a><button data-action="app-info">Our Android experience</button><button data-action="legal" data-id="contact">Contact & Grievances</button></div><div class="footer-col"><h4>Customer Protection & Policies</h4><button data-action="legal" data-id="privacy">Privacy Policy</button><button data-action="legal" data-id="terms">Terms & Conditions</button><button data-action="legal" data-id="refund">Cancellation & Refund Policy</button><button data-action="legal" data-id="shipping">Shipping & Delivery Policy</button><button data-action="legal" data-id="contact">Contact Us</button><button data-action="firebase-config">Firebase Settings</button><button data-action="account">Your account</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery & Botanical Gardens Pvt Ltd. 100% Secure payments powered by Razorpay.</span><button data-action="replay">${icon("replay")}Replay the growing plant</button></div></div></footer>`;
+  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>A plant for every corner.<br>A little care for every garden.</p><button class="footer-support" data-action="support">${icon("leaf")} Let’s help your garden grow ${icon("arrow")}</button></div><div class="footer-col"><h4>Explore the nursery</h4><a href="#services">Garden services</a><button data-action="browse-category" data-id="All plants">Buy our products</button><button data-action="browse-category" data-id="Indoor plants">Indoor plants</button><button data-action="browse-category" data-id="Pots & planters">Pots & planters</button><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Your green space</h4><a href="#orders">Orders & service bookings</a><button data-action="account">Your account</button><a href="#customer-admin">Customer portal</a><a href="#partner">Service partner portal</a><button data-action="app-info">Our Android apps</button></div><div class="footer-col"><h4>Here to help</h4><button data-action="legal" data-id="contact">Contact us</button><button data-action="legal" data-id="shipping">Shipping & delivery</button><button data-action="legal" data-id="refund">Cancellations & returns</button><button data-action="legal" data-id="privacy">Privacy policy</button><button data-action="legal" data-id="terms">Terms & conditions</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery. Good things take root.</span><div><a href="#super-admin">Admin workspace</a><button data-action="replay">${icon("replay")}A moment of green</button></div></div></div></footer>`;
 }
 function productCard(p) {
-  return `<article class="product-card"><div class="product-image" data-action="product" data-id="${p.id}" role="button" tabindex="0" aria-label="View ${esc(p.name)}"><img src="${asset(p.image)}" alt="${esc(p.name)} — illustrative nursery photography" loading="lazy"><span class="product-badge">${esc(p.badge)}</span><button class="favorite-btn ${state.favorites.includes(p.id) ? "saved" : ""}" data-action="favorite" data-id="${p.id}" aria-label="${state.favorites.includes(p.id) ? "Unsave" : "Save"} ${esc(p.name)}" aria-pressed="${state.favorites.includes(p.id)}">${icon("heart")}</button><button class="quick-add" data-action="add-cart" data-id="${p.id}" aria-label="Add ${esc(p.name)} to bag" ${p.stock < 1 ? "disabled" : ""}>${icon("plus")}</button></div><div class="product-info"><small>${esc(p.category)}</small><h3><a href="#shop" data-action="product" data-id="${p.id}">${esc(p.name)}</a></h3><div class="price">${money(p.price)} ${p.oldPrice ? `<del>${money(p.oldPrice)}</del>` : ""}</div><div class="product-care">${icon("sun")}${esc(p.care)}</div></div></article>`;
+  const discount =
+    p.oldPrice > p.price ? Math.round((1 - p.price / p.oldPrice) * 100) : 0;
+  return `<article class="product-card"><div class="product-image"><button class="product-photo-button" data-action="product" data-id="${p.id}" aria-label="View ${esc(p.name)}"><img src="${asset(p.image)}" alt="${esc(p.name)}" loading="lazy"></button>${discount ? `<span class="product-badge">${discount}% off</span>` : ""}<button class="favorite-btn ${state.favorites.includes(p.id) ? "saved" : ""}" data-action="favorite" data-id="${p.id}" aria-label="${state.favorites.includes(p.id) ? "Unsave" : "Save"} ${esc(p.name)}" aria-pressed="${state.favorites.includes(p.id)}">${icon("heart")}</button></div><div class="product-info"><small>${esc(p.category)}</small><h3><a href="#shop" data-action="product" data-id="${p.id}">${esc(p.name)}</a></h3><div class="product-care">${icon("sun")}${esc(p.care)}</div><div class="product-purchase"><div class="price">${money(p.price)} ${p.oldPrice ? `<del>${money(p.oldPrice)}</del>` : ""}</div><button class="product-add" data-action="add-cart" data-id="${p.id}" aria-label="Add ${esc(p.name)} to bag" ${p.active === false || p.stock < 1 ? "disabled" : ""}>${p.active === false || p.stock < 1 ? "Sold out" : "Add"} ${icon("plus")}</button></div></div></article>`;
 }
 function serviceCard(s) {
   return `<button class="service-card" data-action="book" data-id="${s.id}"><div class="service-photo"><img src="${asset(s.image)}" alt="${esc(s.name)}" loading="lazy"><span class="photo-label">${esc(s.label)}</span></div><div class="service-card-content"><h3>${esc(s.name)}</h3><p>${esc(s.description)}</p><div class="card-bottom"><span>From <strong>${money(s.price)}</strong></span><span class="circle-arrow">${icon("up")}</span></div></div></button>`;
 }
 function home() {
-  return `<main><section class="container hero"><div class="hero-grid"><div class="hero-copy"><div class="eyebrow">ROOTED IN NATURE. MADE FOR YOU.</div><h1>A little greener.<br>A lot <span class="serif">better.</span></h1><p>From a plant on your windowsill to a garden of your dreams. Let’s bring a little more life to your space.</p><div class="hero-actions"><a href="#services" class="btn btn-primary">Find your garden service ${icon("up")}</a><a href="#shop" class="hero-secondary">Shop our plants ${icon("arrow")}</a></div><div class="hero-trust"><div>${icon("shield")}Approved service partners</div><div>${icon("leaf")}Plants from our nursery</div><div>${icon("garden")}Care for every green space</div></div></div><div class="hero-art"><div class="hero-image"><img src="${asset("garden-hero.png")}" alt="Sunlit arched courtyard filled with tropical plants and terracotta pots" fetchpriority="high"></div><div class="hero-stamp"><svg viewBox="0 0 100 100"><defs><path id="stampCircle" d="M50,50 m-37,0 a37,37 0 1,1 74,0 a37,37 0 1,1 -74,0"/></defs><text><textPath href="#stampCircle">GOOD THINGS TAKE ROOT • KAUSHIK NURSERY • </textPath></text></svg><span class="stamp-leaf">${icon("leaf")}</span></div><div class="hero-caption">${icon("garden")}<p>Good things take root.<small>MAKE ROOM FOR SOMETHING BEAUTIFUL</small></p></div><span class="hero-side">A SLOWER MOMENT. A GREENER WORLD.</span></div></div><div class="hero-bottom"><span>YOUR SPACE. YOUR PACE. YOUR KIND OF GREEN.</span><button data-scroll="garden-services">SCROLL TO GROW ${icon("down")}</button></div></section><div class="container"><div class="service-strip"><div>${icon("garden")}Garden design & landscaping</div><div>${icon("tools")}Plant care & maintenance</div><div>${icon("sun")}Terrace & balcony gardens</div><div>${icon("leaf")}Plants, pots & little joys</div></div></div><section id="garden-services" class="container services-section reveal"><div class="section-title"><div><div class="eyebrow">A SPACE THAT FEELS LIKE YOU</div><h2>Dream a garden.<br>We’ll help it <span class="serif">grow.</span></h2></div><a href="#services" class="text-link">Explore all services ${icon("up")}</a></div><div class="service-grid">${state.services.slice(0, 3).map(serviceCard).join("")}</div></section><section id="how-it-works" class="how-section reveal"><div class="container how-grid"><div><div class="eyebrow">FROM AN IDEA TO A LITTLE OASIS</div><h2>Growing together,<br><span class="serif">simply.</span></h2></div><div class="steps"><div class="step"><div class="step-num">01</div><h3>Tell us your green dream</h3><p>Choose a service and share a little about your space and what you have in mind.</p></div><div class="step"><div class="step-num">02</div><h3>Meet the right hands</h3><p>Your request reaches suitable, approved garden professionals near you.</p></div><div class="step"><div class="step-num">03</div><h3>Watch good things grow</h3><p>Confirm your booking, follow the progress and enjoy your greener everyday.</p></div></div></div></section><section class="container plant-section reveal"><div class="section-title"><div><div class="eyebrow">STRAIGHT FROM OUR NURSERY</div><h2>Meet your new<br><span class="serif">green companions.</span></h2></div><a class="text-link" href="#shop">Shop all plants ${icon("up")}</a></div><div class="product-grid">${state.products.slice(0, 4).map(productCard).join("")}</div></section><section class="container story-section reveal"><div class="story-card"><div class="story-image"><img src="${asset("garden-hero.png")}" alt="A peaceful garden filled with leafy plants" loading="lazy"></div><div class="story-copy"><div class="eyebrow">THE KAUSHIK WAY</div><h2>We believe life<br>is better with<br><i>a little green.</i></h2><p>Plants for your everyday. Professionals for your garden. One thoughtful place to start something beautiful.</p><a href="#services" class="text-link">Find your kind of green ${icon("up")}</a></div></div></section><section class="container"><div class="newsletter"><div><h2>A little inspiration in your inbox.</h2><p>Plant care ideas, garden inspiration and a few things worth growing.</p></div><form class="newsletter-form" data-form="newsletter"><label class="hidden" for="newsletter-email">Email address</label><input id="newsletter-email" type="email" name="email" placeholder="Your email address" required autocomplete="email"><button class="btn btn-primary" type="submit">Keep me growing ${icon("arrow")}</button></form></div></section></main>`;
+  const categories = [
+    [
+      "Garden design",
+      "Thoughtful outdoor spaces",
+      "garden-design.jpg",
+      "service",
+      "s1",
+    ],
+    [
+      "Garden care",
+      "A little expert attention",
+      "garden-care.jpg",
+      "service",
+      "s2",
+    ],
+    [
+      "Terrace gardens",
+      "Your own green escape",
+      "garden-hero.png",
+      "service",
+      "s3",
+    ],
+    [
+      "Indoor plants",
+      "Bring the outdoors in",
+      "plant-monstera.jpg",
+      "shop",
+      "Indoor plants",
+    ],
+    [
+      "Succulents",
+      "Small plants, big joy",
+      "plant-succulent.jpg",
+      "shop",
+      "Succulents",
+    ],
+    [
+      "Pots & planters",
+      "A home for every plant",
+      "terracotta-pots.jpg",
+      "shop",
+      "Pots & planters",
+    ],
+  ];
+  return `<main id="main-content" tabindex="-1"><section class="container welcome-section"><div class="garden-welcome"><div class="welcome-copy"><div class="welcome-kicker">${icon("leaf")} A LITTLE CLOSER TO NATURE</div><h1>A greener space.<br>A <em>happier you.</em></h1><p>From your first little plant to the garden you’ve always imagined. Let’s grow something beautiful, together.</p><div class="welcome-actions"><a href="#services" class="btn btn-primary">Explore garden services ${icon("arrow")}</a><button class="welcome-shop" data-action="browse-category" data-id="All plants">Shop our plants ${icon("arrow")}</button></div><div class="welcome-note"><span class="tiny-leaves">${icon("leaf")}${icon("leaf")}${icon("leaf")}</span><span>Thoughtfully grown. Lovingly cared for.</span></div></div><div class="welcome-image"><img src="${asset("garden-hero.png")}" alt="Sunlit garden courtyard with lush greenery and terracotta pots" fetchpriority="high"><div class="image-note">${icon("garden")} <span>Your everyday,<br><strong>a little more alive.</strong></span></div></div></div></section>
+    <section class="container nursery-benefits" aria-label="The Kaushik promise">${[
+      ["leaf", "Grown with care", "Plants straight from our nursery"],
+      [
+        "shield",
+        "Expert garden partners",
+        "Approved professionals for your space",
+      ],
+      ["truck", "Delivered to your door", "Free delivery on orders ₹1,000+"],
+      [
+        "garden",
+        "Here to help you grow",
+        "Care guidance, every step of the way",
+      ],
+    ]
+      .map(
+        ([i, t, d]) =>
+          `<div>${icon(i)}<span><strong>${t}</strong><small>${d}</small></span></div>`,
+      )
+      .join("")}</section>
+    <section class="container collection-section"><div class="section-title compact-title"><div><span class="section-kicker">FIND YOUR KIND OF GREEN</span><h2>Every space has a green side.</h2></div><a href="#services" class="view-link">Let’s find yours ${icon("arrow")}</a></div><div class="collection-grid">${categories.map(([name, sub, img, kind, id]) => `<button class="collection-card" data-action="${kind === "service" ? "book" : "browse-category"}" data-id="${id}"><span class="collection-photo"><img src="${asset(img)}" alt="${esc(name)}" loading="lazy"><span>${icon("up")}</span></span><strong>${name}</strong><small>${sub}</small></button>`).join("")}</div></section>
+    <section id="garden-services" class="container featured-services"><div class="section-title compact-title"><div><span class="section-kicker">YOUR GARDEN, IN GOOD HANDS</span><h2>A little vision. A little expert care.</h2><p>Meet the people who turn green dreams into everyday spaces.</p></div><a href="#services" class="view-link">View all services ${icon("arrow")}</a></div><div class="service-grid">${state.services
+      .filter((s) => state.liveServiceIds?.includes(s.id))
+      .slice(0, 3)
+      .map(serviceCard)
+      .join("")}</div></section>
+    <section class="shop-feature"><div class="container"><div class="section-title compact-title"><div><span class="section-kicker">BUY OUR PRODUCTS</span><h2>Good company for your home.</h2><p>Plants and garden essentials, sold directly by Kaushik Nursery.</p></div><button class="view-link" data-action="browse-category" data-id="All plants">Explore the nursery ${icon("arrow")}</button></div><div class="product-grid">${[
+      "p1",
+      "p2",
+      "p5",
+      "p8",
+    ]
+      .map((id) => product(id))
+      .filter(
+        (p) => p && p.active !== false && state.categories.includes(p.category),
+      )
+      .map(productCard)
+      .join(
+        "",
+      )}</div><div class="nursery-shop-note">${icon("leaf")} A little plant today. A greener everyday.</div></div></section>
+    <section class="container inspiration-section"><div class="inspiration-card terrace-card"><img src="${asset("garden-design.jpg")}" alt="Flower-lined garden path" loading="lazy"><div><span class="section-kicker">MAKE ROOM FOR NATURE</span><h2>A bare corner.<br>A world of possibilities.</h2><a class="btn btn-white" href="#services">Plan your garden ${icon("arrow")}</a></div></div><div class="inspiration-card care-card"><span class="section-kicker">NEW TO PLANT PARENTING?</span>${icon("leaf")}<h2>A little care.<br>A lot of happy leaves.</h2><p>Find the right light, the right watering rhythm, and a little guidance along the way.</p><button class="view-link" data-action="support">Find your growing guide ${icon("arrow")}</button></div></section>
+    <section id="how-it-works" class="container growing-section"><div class="section-title compact-title"><div><span class="section-kicker">FROM YOUR FIRST IDEA TO THE FINISHING TOUCH</span><h2>Your green dream, made simple.</h2></div><a href="#services" class="view-link">Get started ${icon("arrow")}</a></div><div class="growing-steps">${[
+      [
+        "01",
+        "Tell us about your space",
+        "Pick a service, choose a package, and share what you have in mind.",
+      ],
+      [
+        "02",
+        "Meet the right professional",
+        "We match your request with approved garden partners near you.",
+      ],
+      [
+        "03",
+        "Let good things grow",
+        "Follow your booking and enjoy a space that feels a little more alive.",
+      ],
+    ]
+      .map(
+        ([n, t, d]) => `<div><span>${n}</span><h3>${t}</h3><p>${d}</p></div>`,
+      )
+      .join("")}</div></section>
+    <section class="container"><div class="android-banner"><div class="android-icon">${icon("garden")}</div><div><span class="section-kicker">YOUR GREEN WORLD, IN YOUR POCKET</span><h2>One nursery. A world of possibilities.</h2><p>Discover the customer and service partner Android experiences.</p></div><button class="btn btn-outline" data-action="app-info">Explore our apps ${icon("arrow")}</button></div></section>
+    <section class="newsletter-section"><div class="container newsletter"><div><span class="section-kicker">LET’S KEEP GROWING</span><h2>A little inspiration in your inbox.</h2><p>Plant care ideas, fresh finds, and things worth growing.</p></div><form class="newsletter-form" data-form="newsletter"><label class="hidden" for="newsletter-email">Email address</label><input id="newsletter-email" type="email" name="email" placeholder="Your email address" required autocomplete="email"><button class="btn btn-primary" type="submit">Count me in ${icon("arrow")}</button></form></div></section></main>`;
 }
 function shop() {
-  return `<main class="container shop-layout"><div class="page-head"><div class="eyebrow">BUY OUR PRODUCTS</div><div class="page-head-row"><div><h1>${favoritesOnly ? "Your saved" : "Little things."}<br><span class="serif">${favoritesOnly ? "green companions." : "Big green energy."}</span></h1><p>Plants, pots and everyday essentials. All sold directly by Kaushik Nursery.</p></div><label class="search-field">${icon("search")}<input id="product-search" type="search" placeholder="Find your next green companion" value="${esc(shopQuery)}" aria-label="Search products"></label></div></div><div class="shop-controls"><div class="filters">${["All plants", ...new Set(state.products.map((p) => p.category))].map((c) => `<button class="filter-chip ${shopCategory === c ? "active" : ""}" data-action="shop-filter" data-id="${esc(c)}">${esc(c)}</button>`).join("")}${favoritesOnly ? '<button class="filter-chip active" data-action="all-products">Saved plants ×</button>' : ""}</div><select id="product-sort" aria-label="Sort products"><option value="featured" ${shopSort === "featured" ? "selected" : ""}>Thoughtfully selected</option><option value="price-low" ${shopSort === "price-low" ? "selected" : ""}>Price: low to high</option><option value="price-high" ${shopSort === "price-high" ? "selected" : ""}>Price: high to low</option></select></div><div id="catalog-results" class="product-grid catalog-grid">${filteredProducts()}</div><div class="info-banner" style="margin-top:35px">${icon("truck")}A little thank you: complimentary delivery on demo orders of ${money(1000)} or more.</div></main>`;
+  return `<main id="main-content" class="container shop-layout" tabindex="-1"><div class="store-breadcrumb"><a href="#home">Home</a><span>/</span><span>Buy our products</span>${shopCategory !== "All plants" ? `<span>/</span><span>${esc(shopCategory)}</span>` : ""}</div><div class="catalog-heading"><div><span class="section-kicker">STRAIGHT FROM OUR NURSERY</span><h1>${favoritesOnly ? "Your saved green companions." : shopCategory === "All plants" ? "A little green goes a long way." : esc(shopCategory) + "."}</h1><p>Thoughtfully grown plants and everyday garden essentials, directly from Kaushik Nursery.</p></div>${icon("leaf")}</div><div class="shop-controls"><div class="filters">${["All plants", ...state.categories].map((c) => `<button class="filter-chip ${shopCategory === c ? "active" : ""}" data-action="shop-filter" data-id="${esc(c)}">${c === "All plants" ? "All products" : esc(c)}</button>`).join("")}${favoritesOnly ? '<button class="filter-chip active" data-action="all-products">Saved plants ×</button>' : ""}</div><select id="product-sort" aria-label="Sort products"><option value="featured" ${shopSort === "featured" ? "selected" : ""}>Featured products</option><option value="price-low" ${shopSort === "price-low" ? "selected" : ""}>Price: low to high</option><option value="price-high" ${shopSort === "price-high" ? "selected" : ""}>Price: high to low</option></select></div><div class="catalog-search-row"><label class="search-field">${icon("search")}<input id="product-search" type="search" placeholder="Search this collection" value="${esc(shopQuery)}" aria-label="Search this collection"></label><span id="catalog-count" role="status" aria-live="polite">${catalogProducts().length} products found</span></div><div id="catalog-results" class="product-grid catalog-grid">${filteredProducts()}</div><div class="info-banner" style="margin-top:35px">${icon("truck")}Complimentary delivery on orders of ${money(1000)} or more. Final availability and pricing are checked at checkout.</div></main>`;
 }
-function filteredProducts() {
-  let ps = state.products.filter(
+function catalogProducts() {
+  return (state.catalogResults || state.products).filter(
     (p) =>
+      (favoritesOnly || p.active !== false) &&
       (shopCategory === "All plants" || p.category === shopCategory) &&
       (!favoritesOnly || state.favorites.includes(p.id)) &&
       `${p.name} ${p.category}`.toLowerCase().includes(shopQuery.toLowerCase()),
   );
+}
+function filteredProducts() {
+  let ps = catalogProducts();
   if (shopSort !== "featured")
     ps.sort((a, b) =>
       shopSort === "price-low" ? a.price - b.price : b.price - a.price,
@@ -198,10 +314,11 @@ function filteredProducts() {
     : `<div class="empty-state" style="grid-column:1/-1">${icon("leaf")}<h3>No plants found here yet.</h3><p>Try another search or save a plant you love.</p><button class="btn btn-outline" data-action="clear-shop">Explore all products</button></div>`;
 }
 function services() {
-  return `<main class="container service-catalog"><div class="page-head"><div class="eyebrow">THE SERVICE MARKETPLACE</div><h1>Your green dream.<br><span class="serif">In good hands.</span></h1><p>Tell us about your space. We’ll connect your request with suitable, approved gardening professionals.</p></div><div class="filters rule">${["All services", ...new Set(state.services.map((s) => s.category))].map((c) => `<button class="filter-chip ${serviceCategory === c ? "active" : ""}" data-action="service-filter" data-id="${esc(c)}">${esc(c)}</button>`).join("")}</div><div class="service-grid">${state.services
+  return `<main id="main-content" class="container service-catalog" tabindex="-1"><div class="page-head"><div class="eyebrow">THE SERVICE MARKETPLACE</div><h1>Your green dream.<br><span class="serif">In good hands.</span></h1><p>Tell us about your space. We’ll connect your request with suitable, approved gardening professionals.</p></div><div class="filters rule">${["All services", ...new Set(state.services.filter((s) => state.liveServiceIds?.includes(s.id)).map((s) => s.category))].map((c) => `<button class="filter-chip ${serviceCategory === c ? "active" : ""}" data-action="service-filter" data-id="${esc(c)}">${esc(c)}</button>`).join("")}</div><div class="service-grid">${state.services
     .filter(
       (s) =>
-        serviceCategory === "All services" || s.category === serviceCategory,
+        state.liveServiceIds?.includes(s.id) &&
+        (serviceCategory === "All services" || s.category === serviceCategory),
     )
     .map(serviceCard)
     .join(
@@ -209,8 +326,11 @@ function services() {
     )}</div><div class="info-banner" style="margin-top:30px">${icon("shield")}Every request is shared with a limited number of suitable professionals. The nursery retains control over the final assignment.</div></main>`;
 }
 function orders() {
-  let ls = state.leads.filter((l) => !l.sample);
-  return `<main class="container orders-list"><div class="page-head"><div class="eyebrow">YOUR GREENER EVERYDAY</div><h1>Good things,<br><span class="serif">in progress.</span></h1><p>Keep your garden bookings and nursery purchases in their own little spaces.</p></div><div class="booking-tabs"><button class="${orderTab === "services" ? "active" : ""}" data-action="orders-tab" data-id="services">My service bookings (${ls.length})</button><button class="${orderTab === "products" ? "active" : ""}" data-action="orders-tab" data-id="products">My product orders (${state.orders.length})</button></div>${orderTab === "services" ? (ls.length ? ls.map((l) => orderCard(l, "service")).join("") : empty("Your next garden story starts here.", "Browse services, share your idea and track your first booking.", "services", "Explore garden services")) : state.orders.length ? state.orders.map((o) => orderCard(o, "product")).join("") : empty("Something green is waiting for you.", "Choose a new companion from our nursery to start your order history.", "shop", "Meet our plants")}</main>`;
+  if (!state.user)
+    return accessPanel("Sign in to view your orders and bookings.");
+  let ls = state.myBookings || [];
+  const ownOrders = state.myOrders || [];
+  return `<main id="main-content" class="container orders-list" tabindex="-1"><div class="page-head"><div class="eyebrow">YOUR GREENER EVERYDAY</div><h1>Good things,<br><span class="serif">in progress.</span></h1><p>Keep your garden bookings and nursery purchases in their own little spaces.</p></div><div class="booking-tabs"><button class="${orderTab === "services" ? "active" : ""}" data-action="orders-tab" data-id="services">My service bookings (${ls.length})</button><button class="${orderTab === "products" ? "active" : ""}" data-action="orders-tab" data-id="products">My product orders (${ownOrders.length})</button></div>${orderTab === "services" ? (ls.length ? ls.map((l) => orderCard(l, "service")).join("") : empty("Your next garden story starts here.", "Browse services, share your idea and track your first booking.", "services", "Explore garden services")) : ownOrders.length ? ownOrders.map((o) => orderCard(o, "product")).join("") : empty("Something green is waiting for you.", "Choose a new companion from our nursery to start your order history.", "shop", "Meet our plants")}</main>`;
 }
 function empty(title, desc, href, label) {
   return `<div class="empty-state">${icon("leaf")}<h3>${title}</h3><p>${desc}</p><a class="btn btn-primary" href="#${href}">${label} ${icon("arrow")}</a></div>`;
@@ -230,10 +350,10 @@ function orderCard(o, type) {
       : ["Order placed", "Confirmed", "Processing", "Dispatched", "Delivered"],
     current = steps.indexOf(o.status);
   let p = isService ? service(o.serviceId) : product(o.items[0]?.id);
-  return `<article class="order-card"><div class="order-top"><div><h3>${esc(isService ? o.serviceName : `Nursery order · ${o.items.reduce((a, c) => a + c.qty, 0)} items`)}</h3><p>${esc(o.id)} · ${isService ? dateLabel(o.date) : new Date(o.created).toLocaleDateString("en-IN")}</p></div>${tag(o.status)}</div><div class="order-body">${p ? `<img class="order-thumb" src="${asset(p.image)}" alt="${esc(p.name || o.serviceName)}">` : ""}<div><h4>${isService ? esc(o.package) : o.items.map((c) => `${esc(product(c.id)?.name || c.name)} × ${c.qty}`).join(", ")}</h4><p>${esc(o.address)}${isService ? ` · ${esc(o.time)}` : ""}</p><p>${isService ? (o.assigned ? `Partner: ${esc(state.partners.find((t) => t.id === o.assigned)?.name)}` : "We’re finding the right hands for your garden.") : `${money(o.total)} · ${esc(o.payment || "Demo payment recorded")}`}</p></div>${isService && !["Service completed", "Cancelled"].includes(o.status) ? `<button class="btn btn-outline btn-small order-action" data-action="cancel-booking" data-id="${o.id}">Cancel request</button>` : ""}${isService && o.status === "Service completed" ? `<button class="btn btn-outline btn-small order-action" data-action="review" data-id="${o.id}">${o.review ? "View review" : "Leave a review"}</button>` : ""}</div>${o.status !== "Cancelled" ? `<div class="status-track">${steps.map((s, i) => `<div class="track-step ${i <= current ? "done" : ""}">${s}</div>`).join("")}</div>` : ""}</article>`;
+  return `<article class="order-card"><div class="order-top"><div><h3>${esc(isService ? o.serviceName : `Nursery order · ${o.items.reduce((a, c) => a + c.qty, 0)} items`)}</h3><p>${esc(o.id)} · ${isService ? dateLabel(o.date) : new Date(o.created).toLocaleDateString("en-IN")}</p></div>${tag(o.status)}</div><div class="order-body">${p ? `<img class="order-thumb" src="${asset(p.image)}" alt="${esc(p.name || o.serviceName)}">` : ""}<div class="order-details"><h4>${isService ? esc(o.package) : o.items.map((c) => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</h4><p>${esc(o.address)}${isService ? ` · ${esc(o.time)}` : ""}</p><p>${isService ? (o.assigned ? `Partner: ${esc(o.partnerName || "Assigned professional")}` : "We’re finding the right hands for your garden.") : `${money(o.total)} · ${esc(o.payment || "Payment pending")}`}</p>${isService ? `<p>${money(o.price)} · ${esc(o.payment || "pending")}</p>` : ""}</div>${isService && !["Service completed", "Cancelled", "Service in progress"].includes(o.status) ? `<button class="btn btn-outline btn-small order-action" data-action="cancel-booking" data-id="${o.id}">Cancel request</button>` : ""}${isService && o.status === "Service completed" ? `<button class="btn btn-outline btn-small order-action" data-action="review" data-id="${o.id}">${o.review ? "View review" : "Leave a review"}</button>` : ""}${!isService && ["Awaiting payment", "Order placed", "Confirmed", "Processing"].includes(o.status) ? `<button class="btn btn-outline btn-small" data-action="cancel-order" data-id="${o.id}">Cancel order</button>` : ""}${!isService && o.status === "Awaiting payment" ? `<button class="btn btn-primary btn-small" data-action="pay-order" data-id="${o.id}">Complete payment</button>` : ""}${isService && o.uploads?.length ? `<div class="order-files">${fileLinks(o.uploads)}</div>` : ""}${isService && o.assigned && o.payment === "pending" && o.status !== "Cancelled" ? `<button class="btn btn-primary btn-small" data-action="pay-booking" data-id="${o.id}">Pay for service</button>` : ""}</div>${!["Cancelled", "Expired"].includes(o.status) ? `<div class="status-track">${steps.map((s, i) => `<div class="track-step ${i <= current ? "done" : ""}">${s}</div>`).join("")}</div>` : ""}</article>`;
 }
 const activePartner = () =>
-  state.partners.find((p) => p.id === (state.activePartnerId || "t1")) ||
+  state.partners.find((p) => String(p.userId) === String(state.user?.id)) ||
   state.partners[0];
 function table(headers, rows) {
   return `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}"><div class="empty-state" style="padding:25px">Nothing here yet.</div></td></tr>`}</tbody></table></div>`;
@@ -242,55 +362,14 @@ function stat(label, value, note) {
   return `<div class="stat-card"><span>${label}</span><strong>${value}</strong><small>${note}</small></div>`;
 }
 function customerPortalView() {
-  if (!state.user) {
-    state.user = {
-      name: "Customer (Guest)",
-      phone: "9876543210",
-      email: "customer@example.com",
-      city: state.city || "Hyderabad",
-      address: "Plot 42, Jubilee Hills Road No. 36",
-      addresses: [
-        {
-          id: "addr_1",
-          tag: "Home",
-          name: "Customer (Guest)",
-          phone: "9876543210",
-          line: "Plot 42, Jubilee Hills Road No. 36",
-          city: "Hyderabad",
-          pincode: "500033",
-          isDefault: true,
-        },
-        {
-          id: "addr_2",
-          tag: "Office / Terrace",
-          name: "Customer (Guest)",
-          phone: "9876543210",
-          line: "Floor 4, Cyber Towers, Hitec City",
-          city: "Hyderabad",
-          pincode: "500081",
-          isDefault: false,
-        },
-      ],
-    };
-  } else if (!state.user.addresses || !state.user.addresses.length) {
-    state.user.addresses = [
-      {
-        id: "addr_1",
-        tag: "Home",
-        name: state.user.name || "Customer",
-        phone: state.user.phone || "9876543210",
-        line: state.user.address || "Plot 42, Green Avenue",
-        city: state.user.city || state.city || "Hyderabad",
-        pincode: "500033",
-        isDefault: true,
-      },
-    ];
-    persist();
-  }
+  if (!state.user) return accessPanel("Your account, your green space.");
   const user = state.user;
-  const myOrders = state.orders;
-  const myBookings = state.leads.filter((l) => !l.sample);
-  const myTotalSpent = myOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const myOrders = state.myOrders || [];
+  const myBookings = state.myBookings || [];
+  const activeBookings = myBookings.filter(
+    (b) => !["Cancelled", "Service completed"].includes(b.status),
+  );
+  const myTotalSpent = state.customerStats?.totalSpent || 0;
 
   let titles = {
     overview: "Your plant sanctuary, at a glance.",
@@ -307,52 +386,67 @@ function customerPortalView() {
     return (
       out +
       `<div class="stats-grid">
-        ${stat("My Orders", myOrders.length, "Plant & garden purchases")}
-        ${stat("Service Bookings", myBookings.length, "Landscaping & maintenance")}
-        ${stat("Total Invested in Green", money(myTotalSpent), "Orders fulfilled & in transit")}
+        ${stat("My Orders", state.customerStats?.orders || 0, "Plant & garden purchases")}
+        ${stat("Service Bookings", state.customerStats?.bookings || 0, "Landscaping & maintenance")}
+        ${stat("Paid nursery orders", money(myTotalSpent), "Captured payments excluding refunds")}
         ${stat("Saved Favorites", state.favorites.length, "Plants saved to wishlist")}
       </div>
       <div class="workspace-columns">
         <div class="panel">
           <div class="panel-heading"><h2>Recent nursery orders</h2><button class="btn btn-soft btn-small" data-action="workspace-tab" data-id="orders">View all ${icon("arrow")}</button></div>
-          ${table(["Order ID", "Items", "Amount", "Payment", "Status"], myOrders.slice(0, 4).map(o => `<tr><td><strong>${esc(o.id)}</strong><small>${new Date(o.created).toLocaleDateString("en-IN")}</small></td><td>${o.items.map(c => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</td><td>${money(o.total)}</td><td>${tag(o.payment || "Paid")}</td><td>${tag(o.status)}</td></tr>`))}
+          ${table(
+            ["Order ID", "Items", "Amount", "Payment", "Status"],
+            myOrders
+              .slice(0, 4)
+              .map(
+                (o) =>
+                  `<tr><td><strong>${esc(o.id)}</strong><small>${new Date(o.created).toLocaleDateString("en-IN")}</small></td><td>${o.items.map((c) => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</td><td>${money(o.total)}</td><td>${tag(o.payment || "Paid")}</td><td>${tag(o.status)}</td></tr>`,
+              ),
+          )}
         </div>
         <div class="panel">
           <div class="panel-heading"><h2>Active service appointments</h2><button class="btn btn-soft btn-small" data-action="workspace-tab" data-id="bookings">View all ${icon("arrow")}</button></div>
-          ${myBookings.length ? myBookings.slice(0, 3).map(l => `<div class="activity">${icon("garden")}<div><h4>${esc(l.serviceName)}</h4><p>${esc(l.package)} · ${dateLabel(l.date)} · ${tag(l.status)}</p></div></div>`).join("") : `<div class="empty-state" style="padding:20px">${icon("leaf")}<p>No active garden appointments yet.</p><a href="#services" class="btn btn-primary btn-small">Book a service ${icon("arrow")}</a></div>`}
+          ${
+            activeBookings.length
+              ? activeBookings
+                  .slice(0, 3)
+                  .map(
+                    (l) =>
+                      `<div class="activity">${icon("garden")}<div><h4>${esc(l.serviceName)}</h4><p>${esc(l.package)} · ${dateLabel(l.date)} · ${tag(l.status)}</p></div></div>`,
+                  )
+                  .join("")
+              : `<div class="empty-state" style="padding:20px">${icon("leaf")}<p>No active garden appointments yet.</p><a href="#services" class="btn btn-primary btn-small">Book a service ${icon("arrow")}</a></div>`
+          }
         </div>
       </div>
       <div class="panel">
         <div class="panel-heading"><h2>Recommended plants for you</h2><a href="#shop" class="btn btn-soft btn-small">Shop catalog ${icon("arrow")}</a></div>
         <div class="product-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:15px">
-          ${state.products.slice(0, 4).map(productCard).join("")}
+          ${state.products
+            .filter(
+              (p) =>
+                p.active !== false && state.categories.includes(p.category),
+            )
+            .slice(0, 4)
+            .map(productCard)
+            .join("")}
         </div>
       </div>`
     );
   }
 
-  if (workspaceTab === "orders") {
+  if (workspaceTab === "orders")
     return (
       out +
-      `<div class="panel">
-        <div class="panel-heading"><h2>My plant orders (${myOrders.length})</h2><a href="#shop" class="btn btn-primary btn-small">${icon("plus")}Shop more plants</a></div>
-        ${table(["Order ID", "Items Ordered", "Delivery Address", "Total", "Payment Info", "Order Status"], myOrders.map(o => `<tr><td><strong>${esc(o.id)}</strong><small>${new Date(o.created).toLocaleDateString("en-IN")}</small></td><td>${o.items.map(c => `${esc(c.name || product(c.id)?.name)} × ${c.qty}`).join(", ")}</td><td><small>${esc(o.address)}</small></td><td>${money(o.total)}</td><td>${tag(o.payment || "Paid")}</td><td>${tag(o.status)}</td></tr>`))}
-      </div>`
+      `<div class="panel"><div class="panel-heading"><h2>My nursery orders</h2><a href="#shop" class="btn btn-primary btn-small">Shop plants</a></div>${myOrders.length ? myOrders.map((o) => orderCard(o, "product")).join("") : empty("Your first nursery order is waiting.", "Choose a plant to start your order history.", "shop", "Explore plants")}</div>`
     );
-  }
-
-  if (workspaceTab === "bookings") {
+  if (workspaceTab === "bookings")
     return (
       out +
-      `<div class="panel">
-        <div class="panel-heading"><h2>My garden services & visits (${myBookings.length})</h2><a href="#services" class="btn btn-primary btn-small">${icon("plus")}Book new service</a></div>
-        ${table(["Booking ID", "Service & Space", "Visit Schedule", "Assigned Professional", "Status", "Action"], myBookings.map(l => `<tr><td><strong>${esc(l.id)}</strong><small>${esc(l.serviceName)}</small></td><td>${esc(l.package)}<small>${esc(l.address || state.city)}</small></td><td>${dateLabel(l.date)}<small>${esc(l.time || "Morning")}</small></td><td>${esc(state.partners.find(p => p.id === l.assigned)?.name || "Matching specialist...")}</td><td>${tag(l.status)}</td><td>${l.status !== "Cancelled" && l.status !== "Service completed" ? `<button class="btn btn-outline btn-small" data-action="cancel-booking" data-id="${l.id}">Cancel</button>` : `<span style="font-size:8px;color:#888">—</span>`}</td></tr>`))}
-      </div>`
+      `<div class="panel"><div class="panel-heading"><h2>My garden bookings</h2><a href="#services" class="btn btn-primary btn-small">Book a service</a></div>${myBookings.length ? myBookings.map((b) => orderCard(b, "service")).join("") : empty("Plan your next garden visit.", "Explore packages and request a professional.", "services", "Explore services")}</div>`
     );
-  }
-
   if (workspaceTab === "saved") {
-    const favProducts = state.products.filter(p => state.favorites.includes(p.id));
+    const favProducts = state.wishlistProducts || [];
     return (
       out +
       `<div class="panel">
@@ -424,12 +518,12 @@ function customerPortalView() {
         <form data-form="customer-profile">
           <div class="form-grid">
             <label class="field"><span>Full Name</span><input name="name" value="${esc(user.name)}" required maxlength="60"></label>
-            <label class="field"><span>Mobile Number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(user.phone)}" required></label>
-            <label class="field"><span>Email Address</span><input name="email" type="email" value="${esc(user.email || "")}" placeholder="name@example.com"></label>
+            <label class="field"><span>Contact phone</span><input name="contactPhone" type="tel" inputmode="numeric" pattern="[+0-9]{10,16}" value="${esc(user.contactPhone || "")}"></label>
+            <label class="field"><span>Email Address</span><input name="email" type="email" value="${esc(user.email || "")}" readonly></label>
             <label class="field"><span>Default City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === (user.city || state.city) ? "selected" : ""}>${c}</option>`).join("")}</select></label>
-            <label class="field full"><span>Primary Delivery Address</span><textarea name="address" placeholder="Your street address, apartment, and landmark">${esc(user.address || "")}</textarea></label>
+
           </div>
-          <div class="modal-footer"><small>Profile updates synchronize across your customer experience.</small><button class="btn btn-primary" type="submit">Save Customer Details ${icon("check")}</button></div>
+          <div class="modal-footer"><small>Profile updates synchronize across your customer experience.</small><button class="btn btn-primary" type="submit">Save Customer Details ${icon("check")}</button><button type="button" class="btn btn-outline" data-action="change-password">Change password</button></div>
         </form>
       </div>
       <div class="panel">
@@ -446,42 +540,18 @@ function customerPortalView() {
   return out;
 }
 
-let isSuperAdminUnlocked = false;
-
 function shell(kind) {
   let isCustomer = kind === "customer-admin";
   let partner = kind === "partner";
   let p = activePartner();
 
-  // Check if current user is an authorized super admin by email
-  if (state.user && isSuperAdminUser(state.user.email)) {
-    isSuperAdminUnlocked = true;
-  }
-
-  // If super admin and not yet logged in / unlocked, show authentication form
-  if ((kind === "super-admin" || kind === "admin") && !isSuperAdminUnlocked) {
-    return `<main class="container" style="max-width:540px;padding:80px 20px">
-      <div class="panel" style="text-align:center;padding:45px 35px">
-        <div class="avatar" style="margin:0 auto 16px;width:56px;height:56px;font-size:24px;background:#153e2e;color:#b8d693">${icon("shield")}</div>
-        <div class="eyebrow" style="justify-content:center">SUPER ADMIN ACCESS CONTROL</div>
-        <h2 style="font-size:24px;margin-bottom:8px">Super Admin Portal</h2>
-        <p class="modal-intro" style="margin-bottom:24px">Access restricted to authorized Super Admin email accounts or security master PIN.</p>
-        <form data-form="super-admin-auth">
-          <label class="field full" style="text-align:left">
-            <span>Super Admin Gmail / Email</span>
-            <input type="email" name="email" value="${esc(state.user?.email || "")}" placeholder="admin@kaushiknursery.com" autocomplete="email" style="font-size:14px">
-          </label>
-          <label class="field full" style="text-align:left;margin-top:14px">
-            <span>Security Master PIN (Default: 8888)</span>
-            <input type="password" name="pin" placeholder="Enter PIN (8888)" autocomplete="current-password" style="font-size:16px;letter-spacing:3px;text-align:center">
-          </label>
-          <div class="info-banner" style="margin-top:16px;font-size:12px;text-align:left">${icon("shield")}Authorized Gmail holders access directly. All other customer emails open Customer Portal.</div>
-          <button class="btn btn-primary" type="submit" style="width:100%;margin-top:20px;justify-content:center">Unlock Super Admin Panel ${icon("arrow")}</button>
-        </form>
-      </div>
-    </main>`;
-  }
-
+  if (!state.user) return accessPanel("Sign in to your green space.");
+  if (!isCustomer && !partner && state.user.role !== "admin")
+    return accessPanel("Administrator access is required.", false);
+  if (partner && state.user.role !== "partner")
+    return `<main class="container" style="padding-top:60px;padding-bottom:60px"><h1>Grow with us.</h1><p>Apply to join our garden service professionals.</p><button class="btn btn-primary" data-action="partner-register">Apply to become a partner ${icon("arrow")}</button></main>`;
+  if (partner && !p)
+    return accessPanel("Your partner profile is unavailable.", false);
   let tabs;
   if (isCustomer) {
     tabs = [
@@ -511,15 +581,35 @@ function shell(kind) {
       ["notifications", "bell", "Broadcast Updates"],
       ["reports", "chart", "Analytics & Reports"],
       ["settings", "settings", "Distribution Rules"],
+      ["jobs", "shield", "System jobs"],
+      ["business", "user", "Business details"],
     ];
   }
 
   if (!tabs.some((t) => t[0] === workspaceTab)) workspaceTab = "overview";
 
-  let avatarLabel = isCustomer ? esc((state.user?.name || "C")[0]) : partner ? esc(p.name[0]) : "👑";
-  let titleLabel = isCustomer ? esc(state.user?.name || "Customer Account") : partner ? esc(p.name) : "Super Administrator";
-  let roleLabel = isCustomer ? "CUSTOMER PORTAL" : partner ? "SERVICE PARTNER" : "SUPER ADMIN SYSTEM CONTROL";
-  let statusBadge = isCustomer ? (state.user ? "Verified Member" : "Guest Account") : partner ? p.status : "Super Admin";
+  let avatarLabel = isCustomer
+    ? esc((state.user?.name || "C")[0])
+    : partner
+      ? esc(p.name[0])
+      : "👑";
+  let titleLabel = isCustomer
+    ? esc(state.user?.name || "Customer Account")
+    : partner
+      ? esc(p.name)
+      : "Super Administrator";
+  let roleLabel = isCustomer
+    ? "CUSTOMER PORTAL"
+    : partner
+      ? "SERVICE PARTNER"
+      : "SUPER ADMIN SYSTEM CONTROL";
+  let statusBadge = isCustomer
+    ? state.user
+      ? "Signed in"
+      : "Guest Account"
+    : partner
+      ? p.status
+      : "Super Admin";
 
   return `<main class="workspace-shell workspace-shell-${kind}">
     <aside class="workspace-sidebar">
@@ -530,11 +620,15 @@ function shell(kind) {
         ${tag(statusBadge)}
       </div>
       ${tabs.map(([id, ic, label]) => `<button class="sidebar-item ${workspaceTab === id ? "active" : ""}" data-action="workspace-tab" data-id="${id}">${icon(ic)}${label}</button>`).join("")}
-      ${!isCustomer && !partner ? `
+      ${
+        !isCustomer && !partner
+          ? `
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid #dce3d4;display:flex;flex-direction:column;gap:6px">
           <a href="#home" class="sidebar-item" style="color:var(--forest)">${icon("arrow")} Back to Store</a>
           <button class="sidebar-item" data-action="super-admin-lock" style="color:#c04b4b">${icon("logout")}Lock Super Admin</button>
-        </div>` : ""}
+        </div>`
+          : ""
+      }
       <div class="workspace-note">
         ${isCustomer ? "CUSTOMER SELF-SERVICE<br>Track your plant orders, garden appointments, and addresses." : "ENTERPRISE CONTROL<br>Manage entire platform operations, partner allocations, and Razorpay reconciliations."}
       </div>
@@ -571,7 +665,7 @@ function partnerView(p) {
       "Your experience, services and availability.",
     ],
   }[workspaceTab];
-  let out = `<div class="workspace-heading"><div><h1>${heading[0]}</h1><p>${heading[1]}</p></div><button class="btn btn-outline btn-small" data-action="partner-register">${icon("plus")}Register a partner</button></div>`;
+  let out = `<div class="workspace-heading"><div><h1>${heading[0]}</h1><p>${heading[1]}</p></div>${["Pending", "Rejected"].includes(p.status) ? '<button class="btn btn-outline btn-small" data-action="partner-register">Update application</button>' : ""}</div>`;
   if (p.status !== "Approved")
     return (
       out +
@@ -581,7 +675,7 @@ function partnerView(p) {
   if (workspaceTab === "leads")
     return (
       out +
-      `<div class="info-banner">${icon("shield")}Accept a lead to receive its assignment. Once assigned, it closes for the other partners. Nursery admin can reassign it.</div><div class="lead-grid">${incoming.length ? incoming.map((l) => leadCard(l, p)).join("") : empty("A little pause before the next project.", "New matching leads will appear here.", "services", "Preview a customer request")}</div>`
+      `<div class="info-banner">${icon("shield")}Accept a lead to receive its assignment. Once assigned, it closes for the other partners. Nursery admin can reassign it.</div><div class="lead-grid">${incoming.length ? incoming.map((l) => leadCard(l, p)).join("") : empty("A little pause before the next project.", "New matching leads will appear here.", "services", "Explore garden services")}</div>`
     );
   if (workspaceTab === "jobs")
     return out + `<div class="panel">${partnerJobs(jobs)}</div>`;
@@ -611,12 +705,32 @@ function partnerJobs(jobs) {
     ],
     jobs.map(
       (l) =>
-        `<tr><td><strong>${esc(l.serviceName)}</strong><small>${esc(l.id)}</small></td><td>${esc(l.customer)}<small>${esc(l.address)}</small></td><td>${dateLabel(l.date)}<small>${esc(l.time)}</small></td><td>${tag(l.status)}</td><td>${!["Service completed", "Cancelled"].includes(l.status) ? `<button class="btn btn-soft btn-small" data-action="job-update" data-id="${l.id}">Update job</button>` : l.review ? `${l.review.rating}/5 stars` : "Completed"}</td></tr>`,
+        `<tr><td><strong>${esc(l.serviceName)}</strong><small>${esc(l.id)}</small></td><td>${esc(l.customer)}<small>${esc(l.address)} · ${esc(l.phone)}</small><small>${fileLinks(l.uploads)}</small></td><td>${dateLabel(l.date)}<small>${esc(l.time)}</small></td><td>${tag(l.status)}</td><td>${!["Service completed", "Cancelled"].includes(l.status) ? `<button class="btn btn-soft btn-small" data-action="job-update" data-id="${l.id}">Update job</button>` : l.review ? `${l.review.rating}/5 stars` : "Completed"}</td></tr>`,
     ),
   );
 }
 function partnerProfile(p) {
-  return `<div class="panel"><div class="panel-heading"><h2>Your partner details</h2>${tag(p.status)}</div><form data-form="partner-profile"><div class="form-grid"><label class="field"><span>Business / professional name</span><input name="name" value="${esc(p.name)}" required maxlength="70"></label><label class="field"><span>Your name</span><input name="person" value="${esc(p.person)}" required maxlength="60"></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === p.city ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Experience</span><input name="experience" value="${esc(p.experience || "3 years")}" placeholder="Years of experience" maxlength="60"></label><label class="field full"><span>Services offered</span><select name="category"><option value="all" ${p.categories.length === 3 ? "selected" : ""}>All gardening categories</option>${["Design & landscaping", "Garden care", "Small-space gardens"].map((c) => `<option ${p.categories.length === 1 && p.categories.includes(c) ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field full"><span>Contact mobile number</span><input name="phone" inputmode="numeric" pattern="[0-9]{10}" value="${esc(p.phone || "")}" placeholder="10-digit number (use sample details)"></label></div><div class="settings-line"><div>Available for new leads<p>Pause new requests when your schedule is full.</p></div><input type="checkbox" name="available" ${p.available ? "checked" : ""} aria-label="Available for new leads"></div><div class="modal-footer"><small>Profile changes are stored in this browser.</small><button class="btn btn-primary" type="submit">Save profile ${icon("check")}</button></div></form></div>`;
+  return `<div class="panel"><div class="panel-heading"><h2>Your partner details</h2>${tag(p.status)}</div><form data-form="partner-profile"><div class="form-grid"><label class="field"><span>Business / professional name</span><input name="name" value="${esc(p.name)}" required maxlength="70"></label><label class="field"><span>Your name</span><input name="person" value="${esc(p.person)}" required maxlength="60"></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === p.city ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Experience</span><input name="experience" value="${esc(p.experience || "3 years")}" placeholder="Years of experience" maxlength="60"></label><label class="field full"><span>Approved services</span><select name="category" disabled><option value="all" ${p.categories.length === 3 ? "selected" : ""}>All gardening categories</option>${state.serviceCategories.map((c) => `<option ${p.categories.length === 1 && p.categories.includes(c) ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field full"><span>Contact mobile number</span><input name="phone" inputmode="numeric" pattern="[0-9]{10}" value="${esc(p.phone || "")}" readonly></label></div><div class="settings-line"><div>Available for new leads<p>Pause new requests when your schedule is full.</p></div><input type="checkbox" name="available" ${p.available ? "checked" : ""} aria-label="Available for new leads"></div><div class="modal-footer"><small>Save your partner profile and availability.</small><button class="btn btn-primary" type="submit">Save profile ${icon("check")}</button></div></form></div>`;
+}
+function orderStatusOptions(o) {
+  const next = {
+    "Order placed": "Confirmed",
+    Confirmed: "Processing",
+    Processing: "Dispatched",
+    Dispatched: "Delivered",
+  };
+  return [
+    o.status,
+    ...(o.payment === "captured" && next[o.status] ? [next[o.status]] : []),
+    ...([
+      "Awaiting payment",
+      "Order placed",
+      "Confirmed",
+      "Processing",
+    ].includes(o.status)
+      ? ["Cancelled"]
+      : []),
+  ];
 }
 function adminView() {
   let pending = state.partners.filter((p) => p.status === "Pending"),
@@ -634,12 +748,14 @@ function adminView() {
     notifications: "A thoughtful little update.",
     reports: "A clearer view of what’s growing.",
     settings: "Fair leads. Thoughtful matches.",
+    jobs: "Background processing & recovery.",
+    business: "Your public nursery details.",
   };
-  let out = `<div class="workspace-heading"><div><h1>${names[workspaceTab]}</h1><p>Kaushik Nursery · Administration · Browser-local demo data</p></div>${workspaceTab === "products" ? '<button class="btn btn-primary btn-small" data-action="product-edit" data-id="new">' + icon("plus") + "Add product</button>" : workspaceTab === "services" ? '<button class="btn btn-primary btn-small" data-action="service-edit" data-id="new">' + icon("plus") + "Add service</button>" : `<span class="tag">${dateLabel(today())}</span>`}</div>`;
+  let out = `<div class="workspace-heading"><div><h1>${names[workspaceTab]}</h1><p>Kaushik Nursery · Administration · Live platform data</p></div>${workspaceTab === "products" ? '<button class="btn btn-primary btn-small" data-action="product-edit" data-id="new">' + icon("plus") + "Add product</button>" : workspaceTab === "services" ? '<button class="btn btn-primary btn-small" data-action="service-edit" data-id="new">' + icon("plus") + "Add service</button>" : `<span class="tag">${dateLabel(today())}</span>`}</div>`;
   if (workspaceTab === "overview")
     return (
       out +
-      `<div class="stats-grid">${stat("Active service requests", active.length, "Across all approved partners")}${stat("Partner approvals", pending.length, "Applications awaiting review")}${stat("Product orders", state.orders.length, "Direct nursery purchases")}${stat("Demo product sales", money(state.orders.reduce((a, o) => a + o.total, 0)), "Illustrative, no real payments")}</div><div class="workspace-columns"><div class="panel"><div class="panel-heading"><h2>Lead allocation</h2><span class="tag">${state.maxPartners} partners max</span></div>${leadTable(state.leads.slice(0, 5), true)}</div><div class="panel"><div class="panel-heading"><h2>Recent activity</h2></div>${state.leads
+      `<div class="stats-grid">${stat("Active service requests", state.stats.activeBookings ?? active.length, "Across all approved partners")}${stat("Partner approvals", state.stats.pendingPartners ?? pending.length, "Applications awaiting review")}${stat("Product orders", state.stats.orders ?? state.orders.length, "Direct nursery purchases")}${stat("Captured payments", money(state.stats.capturedAmount || 0), state.paymentMode === "test" ? "Test transactions only" : "Verified product and service payments")}</div><div class="workspace-columns"><div class="panel"><div class="panel-heading"><h2>Lead allocation</h2><span class="tag">${state.maxPartners} partners max</span></div>${leadTable(state.leads.slice(0, 5), true)}</div><div class="panel"><div class="panel-heading"><h2>Recent activity</h2></div>${state.leads
         .slice(0, 4)
         .map(
           (l) =>
@@ -668,52 +784,59 @@ function adminView() {
   if (workspaceTab === "users")
     return (
       out +
-      `<div class="panel"><div class="panel-heading"><h2>Customer account</h2></div>${table(["Name", "Mobile", "Email", "City", "Service requests"], state.user ? [`<tr><td>${esc(state.user.name)}</td><td>${esc(state.user.phone)}</td><td>${esc(state.user.email || "—")}</td><td>${esc(state.city)}</td><td>${state.leads.filter((l) => !l.sample).length}</td></tr>`] : [])}<p class="field-note">Sign in through the customer preview to create a browser-local demo account.</p></div>`
+      `<div class="panel"><div class="panel-heading"><h2>Customer directory</h2></div><form data-form="admin-user-search" class="portal-search"><label class="field"><span>Find by email, phone or name prefix</span><input name="query" type="search" maxlength="100" value="${esc(state.adminUserQuery || "")}"></label><button type="submit" class="btn btn-outline">Search users</button></form>${table(
+        ["Name", "Email", "Role", "Status", "Manage"],
+        state.users.map(
+          (u) =>
+            `<tr><td>${esc(u.name)}</td><td>${esc(u.email || "—")}</td><td>${esc(u.role)}</td><td>${tag(u.status)}</td><td>${u.role !== "admin" ? `<button class="btn btn-soft btn-small" data-action="user-status" data-id="${u.id}" data-status="${u.status === "active" ? "disabled" : "active"}">${u.status === "active" ? "Disable" : "Activate"}</button>` : "Administrator"}</td></tr>`,
+        ),
+      )}</div>`
     );
   if (workspaceTab === "products")
     return (
       out +
-      `<div class="panel"><div class="panel-heading"><h2>Nursery catalog</h2><p>Products sold only by Kaushik Nursery</p></div>${table(
+      `<div class="panel"><div class="panel-heading"><h2>Nursery catalog</h2><button class="btn btn-soft btn-small" data-action="category-create">Add category</button></div>${table(
         ["Product", "Category", "Price", "Stock", "Manage"],
         state.products.map(
           (p) =>
             `<tr><td><div class="table-product"><img src="${asset(p.image)}" alt="${esc(p.name)}"><strong>${esc(p.name)}</strong></div></td><td>${esc(p.category)}</td><td>${money(p.price)}</td><td>${p.stock} available</td><td><button class="btn btn-soft btn-small" data-action="product-edit" data-id="${p.id}">Edit</button></td></tr>`,
         ),
-      )}</div><div class="panel"><div class="panel-heading"><h2>Product orders</h2></div>${table(
+      )}</div>${categoryControls("product")}<div class="panel"><div class="panel-heading"><h2>Product orders</h2></div>${table(
         ["Order", "Customer", "Total", "Payment", "Status"],
         state.orders.map(
           (o) =>
-            `<tr><td>${esc(o.id)}<small>${o.items.length} product types</small></td><td>${esc(o.name)}<small>${esc(o.address)}</small></td><td>${money(o.total)}</td><td>${tag("Demo paid")}</td><td><select class="order-status-select" data-id="${o.id}" aria-label="Order status for ${o.id}">${["Order placed", "Confirmed", "Processing", "Dispatched", "Delivered", "Cancelled"].map((s) => `<option ${s === o.status ? "selected" : ""}>${s}</option>`).join("")}</select></td></tr>`,
+            `<tr><td>${esc(o.id)}<small>${o.items.length} product types</small></td><td>${esc(o.name)}<small>${esc(o.address)}</small></td><td>${money(o.total)}</td><td>${tag(o.payment)}</td><td><select class="order-status-select" data-id="${o.id}" aria-label="Order status for ${o.id}" ${orderStatusOptions(o).length === 1 ? "disabled" : ""}>${orderStatusOptions(
+              o,
+            )
+              .map(
+                (s) =>
+                  `<option ${s === o.status ? "selected" : ""}>${s}</option>`,
+              )
+              .join("")}</select></td></tr>`,
         ),
       )}</div>`
     );
   if (workspaceTab === "payments")
     return (
       out +
-      `<div class="info-banner">${icon("shield")}All payments are simulated. These controls demonstrate transaction and refund states without moving money.</div><div class="panel"><div class="panel-heading"><h2>Product payments</h2></div>${table(
-        ["Transaction", "Customer", "Amount", "Payment status", "Manage"],
-        state.orders.map(
-          (o) =>
-            `<tr><td>${esc(o.id)}<small>Nursery product order</small></td><td>${esc(o.name)}</td><td>${money(o.total)}</td><td>${tag(o.payment)}</td><td>${o.payment !== "Demo refunded" ? `<button class="btn btn-soft btn-small" data-action="payment" data-id="${o.id}" data-kind="product" data-status="Demo refunded">Simulate refund</button>` : "Refund recorded"}</td></tr>`,
-        ),
-      )}</div><div class="panel"><div class="panel-heading"><h2>Service payments</h2></div>${table(
-        ["Request", "Service", "Package amount", "Payment status", "Manage"],
-        state.leads.map(
-          (l) =>
-            `<tr><td>${esc(l.id)}</td><td>${esc(l.serviceName)}</td><td>${money(l.price)}</td><td>${tag(l.payment || "Pending")}</td><td><button class="btn btn-soft btn-small" data-action="payment" data-id="${l.id}" data-kind="service" data-status="${l.payment === "Demo paid" ? "Demo refunded" : "Demo paid"}">${l.payment === "Demo paid" ? "Simulate refund" : "Simulate payment"}</button></td></tr>`,
+      `<div class="info-banner">${icon("shield")}${state.paymentMode === "test" ? "Test environment. All payments here are simulated." : "Payment status is verified with the gateway. Refunds are processed by the background worker."}</div><div class="panel"><h2>Product & service payments</h2>${table(
+        ["Payment", "Order / booking", "Amount", "Status", "Refund"],
+        state.payments.map(
+          (p) =>
+            `<tr><td>${esc(p.id)}</td><td>${esc(p.order_id || p.booking_id)}</td><td>${money(p.amount_paise / 100)}</td><td>${tag(p.status)}</td><td>${p.refund_status ? tag(p.refund_status) : p.status === "captured" ? `<button class="btn btn-soft btn-small" data-action="payment" data-id="${p.id}">Request full refund</button>` : "—"}</td></tr>`,
         ),
       )}</div>`
     );
   if (workspaceTab === "services")
     return (
       out +
-      `<div class="panel"><div class="panel-heading"><h2>Service catalog</h2><p>Categories, pricing and packages</p></div>${table(
+      `<div class="panel"><div class="panel-heading"><h2>Service catalog</h2><button class="btn btn-soft btn-small" data-action="service-category-create">Add category</button></div>${table(
         ["Service", "Category", "From", "Packages", "Manage"],
         state.services.map(
           (s) =>
             `<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(s.category)}</td><td>${money(s.price)}</td><td>${s.packages.length}</td><td><button class="btn btn-soft btn-small" data-action="service-edit" data-id="${s.id}">Edit</button></td></tr>`,
         ),
-      )}</div>`
+      )}</div>${categoryControls("service")}`
     );
   if (workspaceTab === "settings")
     return (
@@ -723,26 +846,44 @@ function adminView() {
   if (workspaceTab === "notifications")
     return (
       out +
-      `<div class="panel"><div class="panel-heading"><h2>Compose an update</h2></div><form data-form="notification"><div class="form-grid"><label class="field full"><span>Audience</span><select name="audience"><option>All customers</option><option>All service partners</option>${state.partners.map((p) => `<option>${esc(p.name)}</option>`).join("")}</select></label><label class="field full"><span>Title</span><input name="title" placeholder="A fresh update from the nursery" required maxlength="100"></label><label class="field full"><span>Message</span><textarea name="message" placeholder="What would you like to share?" required maxlength="500"></textarea></label></div><div class="modal-footer"><small>Preview only. No push notification is sent.</small><button class="btn btn-primary">Save demo notification ${icon("bell")}</button></div></form></div><div class="panel"><div class="panel-heading"><h2>Saved updates</h2></div>${table(
+      `<div class="panel"><div class="panel-heading"><h2>Compose an update</h2></div><form data-form="notification"><div class="form-grid"><label class="field full"><span>Audience</span><select name="audience"><option>All customers</option><option>All service partners</option><option>All customers and partners</option></select></label><label class="field full"><span>Title</span><input name="title" placeholder="A fresh update from the nursery" required maxlength="100"></label><label class="field full"><span>Message</span><textarea name="message" placeholder="What would you like to share?" required maxlength="500"></textarea></label></div><div class="modal-footer"><small>Recipients receive an in-app notification.</small><button class="btn btn-primary">Queue notification ${icon("bell")}</button></div></form></div><div class="panel"><div class="panel-heading"><h2>Recent broadcasts</h2></div>${table(
         ["Title", "Audience", "Message"],
-        state.notifications.map(
+        (state.broadcasts || []).map(
           (n) =>
             `<tr><td>${esc(n.title)}</td><td>${esc(n.audience)}</td><td>${esc(n.message)}</td></tr>`,
         ),
       )}</div>`
     );
+  if (workspaceTab === "jobs")
+    return (
+      out +
+      `<div class="panel"><h2>Background jobs</h2>${table(
+        ["Job", "Type", "Status", "Attempts", "Last error", "Action"],
+        (state.adminJobs || []).map(
+          (j) =>
+            `<tr><td>${esc(j.id)}</td><td>${esc(j.type)}</td><td>${tag(j.status)}</td><td>${j.attempts}</td><td>${esc(j.last_error || "—")}</td><td>${j.status === "failed" ? `<button class="btn btn-outline btn-small" data-action="retry-job" data-id="${j.id}">Retry failed job</button>` : "—"}</td></tr>`,
+        ),
+      )}</div>`
+    );
+  if (workspaceTab === "business") {
+    const b = state.business || {};
+    return (
+      out +
+      `<div class="panel"><h2>Public support details</h2><form data-form="business-profile"><div class="form-grid"><label class="field full"><span>Business name</span><input name="name" value="${esc(b.name || "Kaushik Nursery")}" maxlength="160" required></label><label class="field"><span>Support email</span><input name="email" type="email" value="${esc(b.email || "")}" maxlength="254"></label><label class="field"><span>Support phone</span><input name="phone" type="tel" pattern="[+0-9]{10,16}" value="${esc(b.phone || "")}"></label><label class="field full"><span>Business address</span><textarea name="address" maxlength="1000">${esc(b.address || "")}</textarea></label></div><p>Saved details are shown publicly in Contact us. Final legal policies and business commitments require nursery review.</p><div class="modal-footer"><button type="submit" class="btn btn-primary">Save public details</button></div></form></div>`
+    );
+  }
   if (workspaceTab === "reports")
     return (
       out +
-      `<div class="panel"><div class="panel-heading"><h2>Download a clear picture</h2><p>CSV exports of the current browser data</p></div>${[
+      `<div class="panel"><div class="panel-heading"><h2>Download a clear picture</h2><p>CSV exports from the database</p></div>${[
         ["leads", "Service requests & leads", state.leads.length],
         ["partners", "Service partner directory", state.partners.length],
-        ["orders", "Product orders & demo payments", state.orders.length],
+        ["orders", "Product orders & payments", state.orders.length],
         ["products", "Catalog & stock", state.products.length],
       ]
         .map(
           ([id, label, count]) =>
-            `<div class="settings-line"><div>${label}<p>${count} records</p></div><button class="btn btn-outline btn-small" data-action="export" data-id="${id}">${icon("download")}Export CSV</button></div>`,
+            `<div class="settings-line"><div>${label}<p>${count} loaded · export includes all records</p></div><button class="btn btn-outline btn-small" data-action="export" data-id="${id}">${icon("download")}Export CSV</button></div>`,
         )
         .join("")}</div>`
     );
@@ -762,7 +903,7 @@ function leadTable(leads, compact = false) {
         ],
     leads.map(
       (l) =>
-        `<tr><td><strong>${esc(l.serviceName)}</strong><small>${esc(l.id)}${compact ? "" : ` · ${esc(l.customer)}`}${l.sample ? " · Sample" : ""}</small></td>${compact ? "" : `<td>${esc(l.city)}<small>${dateLabel(l.date)} · ${esc(l.time)}</small></td><td>${l.recipients.length} partners<small>${l.declined.length} declined</small></td>`}<td>${tag(l.status)}</td><td>${esc(state.partners.find((p) => p.id === l.assigned)?.name || "Awaiting assignment")}</td><td><div class="table-actions"><button class="btn btn-soft" data-action="assign" data-id="${l.id}">${l.assigned ? "Reassign" : "Assign"}</button>${l.status !== "Cancelled" && l.status !== "Service completed" ? `<button class="btn btn-outline" data-action="cancel-booking" data-id="${l.id}">Cancel</button>` : ""}</div></td></tr>`,
+        `<tr><td><strong>${esc(l.serviceName)}</strong><small>${esc(l.id)}${compact ? "" : ` · ${esc(l.customer)} · ${esc(l.phone)}${fileLinks(l.uploads)}`}${l.sample ? " · Sample" : ""}</small></td>${compact ? "" : `<td>${esc(l.city)}<small>${dateLabel(l.date)} · ${esc(l.time)}</small></td><td>${l.recipients.length} partners<small>${l.declined.length} declined</small></td>`}<td>${tag(l.status)}</td><td>${esc(state.partners.find((p) => p.id === l.assigned)?.name || "Awaiting assignment")}</td><td><div class="table-actions">${!["Service completed", "Cancelled"].includes(l.status) ? `<button class="btn btn-soft" data-action="assign" data-id="${l.id}">${l.assigned ? "Reassign" : "Assign"}</button>` : ""}${l.status !== "Cancelled" && l.status !== "Service completed" ? `<button class="btn btn-outline" data-action="cancel-booking" data-id="${l.id}">Cancel</button>` : ""}</div></td></tr>`,
     ),
   );
 }
@@ -771,7 +912,7 @@ function partnersTable(partners) {
     ["Partner", "Location / services", "Status", "Available", "Manage"],
     partners.map(
       (p) =>
-        `<tr><td><strong>${esc(p.name)}</strong><small>${esc(p.person)}</small></td><td>${esc(p.city)}<small>${p.categories.map(esc).join(", ")}</small></td><td>${tag(p.status)}</td><td>${p.available ? "Yes" : "No"}</td><td><div class="table-actions">${p.status === "Pending" ? `<button class="btn btn-primary" data-action="partner-status" data-id="${p.id}" data-status="Approved">Approve</button><button class="btn btn-outline" data-action="partner-status" data-id="${p.id}" data-status="Rejected">Reject</button>` : `<button class="btn btn-soft" data-action="partner-status" data-id="${p.id}" data-status="${p.status === "Approved" ? "Suspended" : "Approved"}">${p.status === "Approved" ? "Suspend" : "Activate"}</button>`}</div>${p.documents?.length ? `<small>Docs: ${p.documents.map(esc).join(", ")}</small>` : ""}</td></tr>`,
+        `<tr><td><strong>${esc(p.name)}</strong><small>${esc(p.person)}</small></td><td>${esc(p.city)}<small>${p.categories.map(esc).join(", ")}</small></td><td>${tag(p.status)}</td><td>${p.available ? "Yes" : "No"}</td><td><div class="table-actions">${p.status === "Pending" ? `<button class="btn btn-primary" data-action="partner-status" data-id="${p.id}" data-status="Approved">Approve</button><button class="btn btn-outline" data-action="partner-status" data-id="${p.id}" data-status="Rejected">Reject</button>` : `<button class="btn btn-soft" data-action="partner-status" data-id="${p.id}" data-status="${p.status === "Approved" ? "Suspended" : "Approved"}">${p.status === "Approved" ? "Suspend" : "Activate"}</button>`}</div>${p.uploads?.length ? `<small>Documents: ${fileLinks(p.uploads)}</small>` : ""}</td></tr>`,
     ),
   );
 }
@@ -805,12 +946,35 @@ function render(scroll = false) {
     { threshold: 0.08 },
   );
   document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
-  document.title = `${{ home: "A little greener, a lot better", shop: "Our plants", services: "Garden services", orders: "My bookings", partner: "Partner workspace", admin: "Super Admin", "super-admin": "Super Admin Portal", "customer-admin": "Customer Admin Portal" }[route]} · Kaushik Nursery`;
+  if (route === "shop") {
+    fetchCatalog();
+  }
+  addPagination();
+  if (backendError)
+    $("#app").insertAdjacentHTML(
+      "afterbegin",
+      `<div class="backend-status" role="alert">The nursery service is unavailable. Please refresh to try again.</div>`,
+    );
+  document.title = `${{ home: "Plants, garden services & a greener everyday", shop: "Buy our products", services: "Garden services", orders: "My bookings", partner: "Partner workspace", admin: "Super Admin", "super-admin": "Super Admin Portal", "customer-admin": "Customer Admin Portal" }[route]} · Kaushik Nursery`;
 }
 function navigate() {
+  if (location.hash.startsWith("#reset-password/")) {
+    render();
+    authForm("reset", location.hash.split("/")[1]);
+    return;
+  }
   let next = location.hash.slice(1).split("/")[0] || "home";
   if (
-    !["home", "shop", "services", "orders", "partner", "admin", "super-admin", "customer-admin"].includes(next)
+    ![
+      "home",
+      "shop",
+      "services",
+      "orders",
+      "partner",
+      "admin",
+      "super-admin",
+      "customer-admin",
+    ].includes(next)
   )
     next = "home";
   if (next !== route) workspaceTab = "overview";
@@ -847,10 +1011,14 @@ function showCart() {
 
   // Find similar or recommended products based on categories in the cart
   const cartIds = state.cart.map((c) => c.id);
-  const cartCategories = state.cart.map((c) => product(c.id)?.category).filter(Boolean);
-  
+  const cartCategories = state.cart
+    .map((c) => product(c.id)?.category)
+    .filter(Boolean);
+
   let similarProducts = state.products.filter(
-    (p) => !cartIds.includes(p.id) && (cartCategories.includes(p.category) || !cartCategories.length)
+    (p) =>
+      !cartIds.includes(p.id) &&
+      (cartCategories.includes(p.category) || !cartCategories.length),
   );
   if (!similarProducts.length) {
     similarProducts = state.products.filter((p) => !cartIds.includes(p.id));
@@ -881,7 +1049,7 @@ function showCart() {
                       <div class="cart-item-info">
                         <h3>${esc(p.name)}</h3>
                         <small style="color:var(--muted);display:block;margin-bottom:4px">${esc(p.category)}</small>
-                        <div class="price">${money(p.price * c.qty)}</div>
+                        <div class="price">${money(p.price * c.qty)}</div>${p.active === false || p.stock < c.qty ? '<small role="status">Unavailable at this quantity</small>' : ""}
                         <div class="quantity">
                           <button data-action="cart-qty" data-id="${p.id}" data-change="-1" aria-label="Reduce quantity of ${esc(p.name)}">−</button>
                           <span>${c.qty}</span>
@@ -936,7 +1104,7 @@ function showCart() {
                 <div class="summary-line"><span>Subtotal</span><span>${money(cartTotal())}</span></div>
                 <div class="summary-line"><span>Delivery</span><span>${delivery() ? money(delivery()) : "On us"}</span></div>
                 <div class="summary-line total"><span>Total</span><span>${money(cartTotal() + delivery())}</span></div>
-                <button class="btn btn-primary" data-action="checkout">Continue to checkout ${icon("arrow")}</button>
+                ${cartUnavailable() ? '<p role="alert">Remove unavailable items or reduce quantities before checkout.</p>' : ""}<button class="btn btn-primary" data-action="checkout" ${cartUnavailable() ? "disabled" : ""}>Continue to checkout ${icon("arrow")}</button>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
                   <p style="margin:0;font-size:9px;color:var(--muted)">Free delivery on orders above ${money(1000)}.</p>
                   <a href="#shop" class="text-link" data-action="close-link" style="font-size:10px">+ Add more</a>
@@ -952,7 +1120,8 @@ function showCart() {
 }
 function addCart(id) {
   const p = product(id);
-  if (!p || p.stock < 1) return toast("This item is currently out of stock.");
+  if (!p || p.active === false || p.stock < 1)
+    return toast("This item is currently out of stock.");
   const c = state.cart.find((c) => c.id === id);
   if (c && c.qty >= p.stock)
     return toast("You’ve reached the available quantity.");
@@ -974,22 +1143,17 @@ function showProduct(id) {
   if (!p) return;
   modalState = { title: p.name, kind: "product", id };
   openModal(
-    `<div class="product-detail"><img src="${asset(p.image)}" alt="${esc(p.name)}"><div><div class="eyebrow">${esc(p.category)}</div><h2>${esc(p.name)}</h2><div class="price">${money(p.price)}${p.oldPrice ? `<del>${money(p.oldPrice)}</del>` : ""}</div><p>${esc(p.description)}</p><div class="detail-care">${icon("sun")}${esc(p.care)}</div><div class="detail-care">${icon("drop")}${esc(p.water)}</div><div class="detail-care">${icon("leaf")}${p.stock > 0 ? `${p.stock} available · Sold by Kaushik Nursery` : "Currently out of stock"}</div><div class="detail-cta"><button class="btn btn-primary" data-action="add-cart" data-id="${p.id}" ${p.stock < 1 ? "disabled" : ""}>Add to bag ${icon("plus")}</button><button class="icon-btn" data-action="favorite" data-id="${p.id}" aria-label="Save plant">${icon("heart")}</button></div><p class="field-note" style="margin-top:20px">Illustrative product photography. The catalog and prices are sample content for this frontend preview.</p></div></div>`,
+    `<div class="product-detail"><img src="${asset(p.image)}" alt="${esc(p.name)}"><div><div class="eyebrow">${esc(p.category)}</div><h2>${esc(p.name)}</h2><div class="price">${money(p.price)}${p.oldPrice ? `<del>${money(p.oldPrice)}</del>` : ""}</div><p>${esc(p.description)}</p><div class="detail-care">${icon("sun")}${esc(p.care)}</div><div class="detail-care">${icon("drop")}${esc(p.water)}</div><div class="detail-care">${icon("leaf")}${p.stock > 0 ? `${p.stock} available · Sold by Kaushik Nursery` : "Currently out of stock"}</div><div class="detail-cta"><button class="btn btn-primary" data-action="add-cart" data-id="${p.id}" ${p.active === false || p.stock < 1 ? "disabled" : ""}>Add to bag ${icon("plus")}</button><button class="icon-btn" data-action="favorite" data-id="${p.id}" aria-label="Save plant">${icon("heart")}</button></div><p class="field-note" style="margin-top:20px">Illustrative nursery photography. Availability and prices are confirmed at checkout.</p></div></div>`,
     true,
   );
 }
-function matchingPartners(s, city) {
-  let ps = state.partners.filter(
-    (p) =>
-      p.status === "Approved" &&
-      p.available &&
-      p.city === city &&
-      p.categories.includes(s.category),
-  );
-  if (state.rotation) ps.sort((a, b) => a.received - b.received);
-  return ps.slice(0, state.maxPartners);
+function matchingPartners() {
+  return [];
 }
 function startBooking(id) {
+  if (!state.user) return account();
+  if (!service(id))
+    return toast("This service is unavailable. Please try again later.");
   modalState = {
     kind: "booking",
     title: "Book a garden service",
@@ -1011,12 +1175,12 @@ function showBooking() {
     p = s.packages[modalState.packageIndex];
   let out = `<div class="eyebrow">YOUR NEXT GREEN CHAPTER</div><h2>${step === 1 ? s.name : step === 2 ? "Tell us about your space." : "Let’s get it growing."}</h2><p class="modal-intro">${step === 1 ? s.description : step === 2 ? "A few thoughtful details help us find the right professional for your garden." : "Review your details before we share your request with suitable partners."}</p><div class="booking-stepper">${[1, 2, 3].map((n) => `<span class="${n <= step ? "active" : ""}"></span>`).join("")}</div>`;
   if (step === 1)
-    out += `<img class="modal-service-image" src="${asset(s.image)}" alt="${esc(s.name)}"><div class="package-grid">${s.packages.map((p, i) => `<button class="package ${modalState.packageIndex === i ? "selected" : ""}" data-action="select-package" data-id="${i}"><h3>${esc(p.name)}</h3><p>${esc(p.description)}</p><strong>${money(p.price)}</strong></button>`).join("")}</div><p class="field-note">Sample package pricing. Any additional work or materials are subject to confirmation.</p><div class="modal-footer"><small>Step 1 of 3 · Choose a package</small><button class="btn btn-primary" data-action="booking-next">Your requirements ${icon("arrow")}</button></div>`;
+    out += `<img class="modal-service-image" src="${asset(s.image)}" alt="${esc(s.name)}"><div class="package-grid">${s.packages.map((p, i) => `<button class="package ${modalState.packageIndex === i ? "selected" : ""}" data-action="select-package" data-id="${i}"><h3>${esc(p.name)}</h3><p>${esc(p.description)}</p><strong>${money(p.price)}</strong></button>`).join("")}</div><p class="field-note">Any additional work or materials are subject to confirmation.</p><div class="modal-footer"><small>Step 1 of 3 · Choose a package</small><button class="btn btn-primary" data-action="booking-next">Your requirements ${icon("arrow")}</button></div>`;
   if (step === 2)
-    out += `<form data-form="booking-details"><div class="form-grid"><label class="field"><span>Your name</span><input name="name" value="${esc(f.name)}" autocomplete="name" required maxlength="60"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(f.phone)}" placeholder="10-digit mobile number" required></label><label class="field"><span>Property type</span><select name="property">${["Apartment", "Independent home", "Commercial property", "Other"].map((c) => `<option ${f.property === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Approximate area (sq ft)</span><input name="area" type="number" min="1" max="1000000" value="${esc(f.area || "")}" placeholder="e.g. 250" required></label><label class="field"><span>Preferred date</span><input name="date" type="date" min="${today()}" value="${esc(f.date || "")}" required></label><label class="field"><span>Preferred time</span><input name="time" type="time" value="${esc(f.time || "09:00")}" required></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${f.city === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Service address</span><input name="address" value="${esc(f.address || "")}" placeholder="Area, building & street" required maxlength="200"></label><label class="field full"><span>Your requirements & special instructions</span><textarea name="description" placeholder="Tell us about your space and what you have in mind…" required maxlength="1000">${esc(f.description || "")}</textarea></label><label class="field full"><span>Reference images (optional)</span><input name="images" type="file" accept="image/*" multiple><p class="field-note">Preview records the file names only. Images are not uploaded.</p></label></div><div class="modal-footer"><button type="button" class="text-link" data-action="booking-back">Back</button><button class="btn btn-primary" type="submit">Review request ${icon("arrow")}</button></div></form>`;
+    out += `<form data-form="booking-details"><div class="form-grid"><label class="field"><span>Your name</span><input name="name" value="${esc(f.name)}" autocomplete="name" required maxlength="60"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" value="${esc(f.phone)}" placeholder="10-digit mobile number" required></label><label class="field"><span>Property type</span><select name="property">${["Apartment", "Independent home", "Commercial property", "Other"].map((c) => `<option ${f.property === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Approximate area (sq ft)</span><input name="area" type="number" min="1" max="1000000" value="${esc(f.area || "")}" placeholder="e.g. 250" required></label><label class="field"><span>Preferred date</span><input name="date" type="date" min="${today()}" value="${esc(f.date || "")}" required></label><label class="field"><span>Preferred time</span><input name="time" type="time" value="${esc(f.time || "09:00")}" required></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${f.city === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Service address</span><input name="address" value="${esc(f.address || "")}" placeholder="Area, building & street" required maxlength="200"></label><label class="field full"><span>Your requirements & special instructions</span><textarea name="description" placeholder="Tell us about your space and what you have in mind…" required maxlength="1000">${esc(f.description || "")}</textarea></label><label class="field full"><span>Reference images (optional)</span><input name="images" type="file" accept="image/*" multiple><p class="field-note">Attach photos to help the professional understand your space.</p></label></div><div class="modal-footer"><button type="button" class="text-link" data-action="booking-back">Back</button><button class="btn btn-primary" type="submit">Review request ${icon("arrow")}</button></div></form>`;
   if (step === 3) {
     let matches = matchingPartners(s, f.city);
-    out += `<div class="summary-line"><span>Service</span><strong>${esc(s.name)}</strong></div><div class="summary-line"><span>Package</span><span>${esc(p.name)} · ${money(p.price)}</span></div><div class="summary-line"><span>Your space</span><span>${esc(f.property)} · ${esc(f.area)} sq ft</span></div><div class="summary-line"><span>Preferred visit</span><span>${dateLabel(f.date)} · ${esc(f.time)}</span></div><div class="summary-line"><span>Location</span><span>${esc(f.address)}, ${esc(f.city)}</span></div><div class="summary-line"><span>Requirements</span><span>${esc(f.description)}</span></div>${f.images?.length ? `<div class="summary-line"><span>References</span><span>${f.images.map(esc).join(", ")}</span></div>` : ""}<div class="info-banner">${icon("shield")}${matches.length ? `Your request will reach ${matches.length} suitable, approved partners. Final assignment remains under nursery control.` : "No matching partner is currently available in this city. Your request will await nursery review and manual assignment."}</div><p class="field-note">Frontend preview: use sample contact details. No message is sent and no payment is collected.</p><div class="modal-footer"><button class="text-link" data-action="booking-back">Edit details</button><button class="btn btn-primary" data-action="submit-booking">Send demo request ${icon("arrow")}</button></div>`;
+    out += `<div class="summary-line"><span>Service</span><strong>${esc(s.name)}</strong></div><div class="summary-line"><span>Package</span><span>${esc(p.name)} · ${money(p.price)}</span></div><div class="summary-line"><span>Your space</span><span>${esc(f.property)} · ${esc(f.area)} sq ft</span></div><div class="summary-line"><span>Preferred visit</span><span>${dateLabel(f.date)} · ${esc(f.time)}</span></div><div class="summary-line"><span>Location</span><span>${esc(f.address)}, ${esc(f.city)}</span></div><div class="summary-line"><span>Requirements</span><span>${esc(f.description)}</span></div>${f.images?.length ? `<div class="summary-line"><span>References</span><span>${f.images.map(esc).join(", ")}</span></div>` : ""}<div class="info-banner">${icon("shield")}${matches.length ? `Your request will reach suitable, approved partners. Final assignment remains under nursery control.` : "We match professionals by service category, city and availability. If none are available, your request goes to the nursery for review."}</div><p class="field-note">Your request is sent to eligible professionals. The nursery controls the final assignment.</p><div class="modal-footer"><button class="text-link" data-action="booking-back">Edit details</button><button class="btn btn-primary" data-action="submit-booking">Submit service request ${icon("arrow")}</button></div>`;
   }
   openModal(out);
 }
@@ -1035,7 +1199,10 @@ function showAddressModal(id = null) {
         isDefault: !addresses.length,
       };
 
-  modalState = { title: isEdit ? "Edit delivery address" : "Add new delivery address", id };
+  modalState = {
+    title: isEdit ? "Edit delivery address" : "Add new delivery address",
+    id,
+  };
   openModal(
     `<div class="eyebrow">${isEdit ? "UPDATE SAVED ADDRESS" : "ADD DELIVERY ADDRESS"}</div>
      <h2>${isEdit ? "Edit address." : "Where should we deliver?"}</h2>
@@ -1046,8 +1213,18 @@ function showAddressModal(id = null) {
          <label class="field">
            <span>Address Tag / Label</span>
            <select name="tag">
-             ${["Home", "Work / Office", "Balcony Garden", "Terrace Farm", "Parents", "Other"]
-               .map((t) => `<option ${target.tag === t ? "selected" : ""}>${t}</option>`)
+             ${[
+               "Home",
+               "Work / Office",
+               "Balcony Garden",
+               "Terrace Farm",
+               "Parents",
+               "Other",
+             ]
+               .map(
+                 (t) =>
+                   `<option ${target.tag === t ? "selected" : ""}>${t}</option>`,
+               )
                .join("")}
            </select>
          </label>
@@ -1063,7 +1240,10 @@ function showAddressModal(id = null) {
            <span>City</span>
            <select name="city">
              ${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"]
-               .map((c) => `<option ${target.city === c ? "selected" : ""}>${c}</option>`)
+               .map(
+                 (c) =>
+                   `<option ${target.city === c ? "selected" : ""}>${c}</option>`,
+               )
                .join("")}
            </select>
          </label>
@@ -1089,16 +1269,21 @@ function showAddressModal(id = null) {
 }
 
 function showCheckout() {
+  if (!state.user) return account();
   if (!state.cart.length) return;
+  if (cartUnavailable())
+    return toast(
+      "Remove unavailable items or reduce quantities before checkout.",
+    );
   modalState = { title: "Checkout", kind: "checkout" };
   const totalAmount = cartTotal() + delivery();
   const addresses = state.user?.addresses || [];
   const defAddr = addresses.find((a) => a.isDefault) || addresses[0];
 
   openModal(
-    `<div class="eyebrow">SECURE RAZORPAY CHECKOUT</div>
+    `<div class="eyebrow">${state.paymentMode === "test" ? "TEST CHECKOUT · NO MONEY COLLECTED" : "NURSERY CHECKOUT"}</div>
      <h2>A new home for your plants.</h2>
-     <p class="modal-intro">Choose delivery address and pay securely with Razorpay (Cards, UPI, NetBanking).</p>
+     <p class="modal-intro">${state.paymentMode === "test" ? "Choose a delivery address to try a simulated checkout. No money is collected." : "Choose a delivery address and pay securely with Razorpay (Cards, UPI, NetBanking)."}</p>
      <form data-form="checkout">
        ${
          addresses.length
@@ -1148,166 +1333,206 @@ function showCheckout() {
            <input name="postal" inputmode="numeric" pattern="[0-9]{6}" value="${esc(defAddr?.pincode || "500033")}" required placeholder="6-digit PIN code">
          </label>
        </div>
-       <div class="info-banner">${icon("shield")}<strong>100% Safe & Encrypted Payment</strong> · Supports UPI (GPay, PhonePe, Paytm), Cards & NetBanking via Razorpay.</div>
+       <div class="info-banner">${icon("shield")}${state.paymentMode === "test" ? "This is a test environment. Payment is simulated and no money is collected." : state.paymentMode === "disabled" ? "Online payments are not available yet. Please contact the nursery." : "Pay securely using UPI, cards or net banking through Razorpay."}</div>
        <div class="summary-line"><span>${cartCount()} items + delivery</span><strong>${money(totalAmount)}</strong></div>
        <p class="field-note" style="margin-top:8px">By placing an order, you agree to our <a href="javascript:void(0)" data-action="legal" data-id="terms" style="text-decoration:underline">Terms & Conditions</a> and <a href="javascript:void(0)" data-action="legal" data-id="refund" style="text-decoration:underline">Cancellation & Refund Policy</a>.</p>
        <div class="modal-footer">
          <button type="button" class="text-link" data-action="cart">Back to bag</button>
-         <button class="btn btn-primary" type="submit" id="pay-button">Pay with Razorpay ${icon("check")}</button>
+         <button class="btn btn-primary" type="submit" id="pay-button">${state.paymentMode === "test" ? "Complete test checkout" : "Continue to payment"} ${icon("check")}</button>
        </div>
      </form>`,
   );
 }
 function account() {
-  modalState = { title: "Your account", kind: "account" };
-  if (state.user)
-    return openModal(
-      `<div class="eyebrow">YOUR LITTLE GREEN SPACE</div><h2>Hello, ${esc(state.user.name.split(" ")[0])}.</h2><p class="modal-intro">Your profile, garden plans, wishlist, and nursery orders.</p><div class="summary-line"><span>Name</span><span>${esc(state.user.name)}</span></div><div class="summary-line"><span>Email</span><span>${esc(state.user.email || "Not added")}</span></div><div class="summary-line"><span>Mobile</span><span>${esc(state.user.phone)}</span></div><div class="summary-line"><span>City</span><span>${esc(state.city)}</span></div><div class="modal-footer"><button class="text-link" data-action="logout">Sign out ${icon("logout")}</button><a class="btn btn-primary" href="#customer-admin" data-action="close-link">Open Customer Portal ${icon("arrow")}</a></div>`,
-    );
+  if (!state.user) return authForm("login");
+  modalState = { title: "Your account" };
   openModal(
-    `<div class="eyebrow">WELCOME TO A GREENER EVERYDAY</div><h2>Sign in to your green space.</h2><p class="modal-intro">Enter your email or mobile to access your Customer Portal, orders & garden visits.</p><form data-form="login-phone"><div class="form-grid"><label class="field full"><span>Email address</span><input name="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><label class="field full"><span>Your name</span><input name="name" autocomplete="name" placeholder="Garden lover" required maxlength="60"></label><label class="field full"><span>Mobile number</span><input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10}" required placeholder="10-digit mobile number"></label></div><div class="modal-footer"><small>Instant access to Customer Portal.</small><button class="btn btn-primary">Enter Customer Portal ${icon("arrow")}</button></div></form>`,
+    `<div class="eyebrow">YOUR GREEN SPACE</div><h2>Hello, ${esc(state.user.name.split(" ")[0])}.</h2><p class="modal-intro">Your nursery orders, garden visits and saved addresses.</p><div class="summary-line"><span>Email</span><span>${esc(state.user.email || "Not added")}</span></div><div class="summary-line"><span>Mobile</span><span>${esc(state.user.phone || "Not added")}</span></div><div class="modal-footer"><button class="text-link" data-action="logout">Sign out</button><a href="#${state.user.role === "admin" ? "super-admin" : state.user.role === "partner" ? "partner" : "customer-admin"}" class="btn btn-primary" data-action="close-link">Open your workspace ${icon("arrow")}</a></div>`,
   );
 }
 function registration() {
+  const p = state.user?.role === "partner" ? activePartner() : null;
+  if (p && !["Pending", "Rejected"].includes(p.status)) {
+    toast(
+      "Contact the nursery to change an approved or suspended application.",
+    );
+    return;
+  }
   modalState = {
-    title: "Register a service partner",
+    title: p ? "Update partner application" : "Apply as a service partner",
     kind: "partner-register",
+    applicationUpdate: Boolean(p),
+    previousUploadIds: p?.uploads?.map((u) => u.id) || [],
   };
   openModal(
-    `<div class="eyebrow">GROW YOUR GARDENING BUSINESS</div><h2>Good gardens need good hands.</h2><p class="modal-intro">Apply to become a service partner. Nursery approval is required before receiving leads.</p><form data-form="partner-register"><div class="form-grid"><label class="field"><span>Your name</span><input name="person" required maxlength="60"></label><label class="field"><span>Business / professional name</span><input name="name" required maxlength="70"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" pattern="[0-9]{10}" inputmode="numeric" required></label><label class="field"><span>Email</span><input name="email" type="email" required></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option>${c}</option>`).join("")}</select></label><label class="field"><span>Experience</span><input name="experience" placeholder="e.g. 5 years" required maxlength="50"></label><label class="field full"><span>Address</span><input name="address" required maxlength="200"></label><label class="field full"><span>Services offered</span><select name="category"><option value="all">All gardening categories</option><option>Design & landscaping</option><option>Garden care</option><option>Small-space gardens</option></select></label><label class="field full"><span>Identity / business documents</span><input name="documents" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple required><p class="field-note">Use sample files. This preview records file names without uploading them.</p></label></div><div class="modal-footer"><small>Preview only. No application is sent externally.</small><button class="btn btn-primary">Submit demo application ${icon("arrow")}</button></div></form>`,
+    `<div class="eyebrow">GROW WITH KAUSHIK NURSERY</div><h2>${p ? "Update your application." : "Apply as a service partner."}</h2><form data-form="partner-register"><div class="form-grid"><label class="field"><span>Your name</span><input name="person" value="${esc(p?.person || state.user?.name || "")}" required maxlength="100"></label><label class="field"><span>Business / professional name</span><input name="name" value="${esc(p?.name || "")}" required maxlength="160"></label><label class="field"><span>Mobile number</span><input name="phone" type="tel" pattern="[+0-9]{10,16}" value="${esc(p?.phone || state.user?.phone || "")}" required></label><label class="field"><span>Sign-in email</span><input type="email" value="${esc(state.user?.email || "")}" readonly></label><label class="field"><span>City</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === (p?.city || state.city) ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Experience</span><input name="experience" value="${esc(p?.experience || "")}" required maxlength="100"></label><label class="field full"><span>Address</span><input name="address" value="${esc(p?.address || "")}" required maxlength="500"></label><fieldset class="field full"><legend>Services offered</legend>${state.serviceCategories.map((c) => `<label><input type="checkbox" name="categories" value="${esc(c)}" ${p?.categories.includes(c) ? "checked" : ""}> ${esc(c)}</label>`).join("")}</fieldset>${p?.uploads?.length ? `<fieldset class="field full"><legend>Keep existing documents</legend>${p.uploads.map((u) => `<label><input type="checkbox" name="existingUploadIds" value="${u.id}" checked> ${esc(u.original_name)}</label>`).join("")}</fieldset>` : ""}<label class="field full"><span>Identity / business documents</span><input type="file" name="documents" accept="application/pdf,image/jpeg,image/png,image/webp" multiple ${p?.uploads?.length ? "" : "required"}><small>At least one document is required. Only the nursery and your account can access these files.</small></label></div><div class="modal-footer"><small>${p ? "Changes return your application to pending review." : "Nursery approval is required before you receive leads."}</small><button type="submit" class="btn btn-primary">${p ? "Resubmit application" : "Submit application"}</button></div></form>`,
   );
 }
-function showAssign(id) {
-  let l = state.leads.find((l) => l.id === id);
-  modalState = { title: "Assign a service partner", kind: "assign", id };
-  openModal(
-    `<div class="eyebrow">ADMIN ASSIGNMENT CONTROL</div><h2>The right hands for this garden.</h2><p class="modal-intro">${esc(l.serviceName)} · ${esc(l.id)} · ${esc(l.city)}</p><form data-form="assign"><label class="field"><span>Select an approved partner</span><select name="partner" required><option value="">Choose a professional</option>${state.partners
-      .filter((p) => p.status === "Approved")
-      .map(
-        (p) =>
-          `<option value="${p.id}" ${p.id === l.assigned ? "selected" : ""}>${esc(p.name)} · ${esc(p.city)}${p.available ? "" : " · unavailable"}</option>`,
-      )
-      .join(
-        "",
-      )}</select></label><div class="info-banner">${icon("shield")}This manual assignment overrides automatic matching. Confirm that the chosen partner can fulfill the request.</div><div class="summary-line"><span>Already received this lead</span><span>${l.recipients.map((id) => esc(state.partners.find((p) => p.id === id)?.name || id)).join(", ") || "No recipients"}</span></div><div class="modal-footer"><button type="button" class="text-link" data-action="unassign" data-id="${l.id}">Remove assignment</button><button class="btn btn-primary">${l.assigned ? "Reassign partner" : "Assign partner"} ${icon("check")}</button></div></form>`,
-  );
+async function showAssign(id, append = false, query = "") {
+  try {
+    const booking = state.leads.find((l) => l.id === id);
+    if (!booking) return;
+    const previous = modalState || {};
+    if (append) query = previous.partnerQuery || "";
+    const result = await api.get(
+      `/admin/bookings/${encodeURIComponent(id)}/eligible-partners?limit=50&q=${encodeURIComponent(query)}${append && previous.partnerCursor ? "&cursor=" + encodeURIComponent(previous.partnerCursor) : ""}`,
+    );
+    const partners = append
+      ? mergeRecords(previous.eligiblePartners, result.items)
+      : result.items;
+    modalState = {
+      title: "Assign a service partner",
+      kind: "assign",
+      id,
+      eligiblePartners: partners,
+      partnerCursor: result.nextCursor,
+      partnerQuery: query,
+    };
+    openModal(
+      `<div class="eyebrow">ADMIN ASSIGNMENT CONTROL</div><h2>Choose a matching professional.</h2><p>${esc(booking.serviceName)} · ${esc(booking.city)}</p><form data-form="eligible-search"><label class="field"><span>Find matching partners by name</span><input type="search" name="query" value="${esc(query)}" maxlength="100"></label><button type="submit" class="btn btn-outline btn-small">Find partners</button></form><form data-form="assign"><label class="field"><span>Approved and available partners</span><select name="partner" required><option value="">Choose a professional</option>${partners.map((p) => `<option value="${p.id}" ${p.id === booking.assigned ? "selected" : ""}>${esc(p.name)} · ${esc(p.city)}</option>`).join("")}</select></label>${!partners.length ? "<p>No eligible professionals match this city, category and availability.</p>" : ""}${result.nextCursor ? `<button type="button" class="text-link" data-action="eligible-more" data-id="${id}">Load more matching partners</button>` : ""}<div class="modal-footer"><button type="button" class="text-link" data-action="unassign" data-id="${id}" ${!booking.assigned ? "disabled" : ""}>Remove assignment</button><button type="submit" class="btn btn-primary" ${!partners.length ? "disabled" : ""}>${booking.assigned ? "Reassign" : "Assign"} partner</button></div></form>`,
+    );
+  } catch (error) {
+    toast(error.message);
+  }
 }
 function showJob(id) {
   let l = state.leads.find((l) => l.id === id);
   modalState = { title: "Update assigned job", kind: "job", id };
   openModal(
-    `<div class="eyebrow">ASSIGNED SERVICE MANAGEMENT</div><h2>${esc(l.serviceName)}</h2><p class="modal-intro">${esc(l.id)} · ${esc(l.customer)} · ${esc(l.phone || "Sample contact")}</p><div class="summary-line"><span>Visit</span><span>${dateLabel(l.date)} · ${esc(l.time)}</span></div><div class="summary-line"><span>Location</span><span>${esc(l.address)}</span></div><div class="summary-line"><span>Requirements</span><span>${esc(l.description)}</span></div><form data-form="job-update" style="margin-top:23px"><label class="field"><span>Service status</span><select name="status">${["Partner assigned", "Booking confirmed", "Service scheduled", "Service in progress", "Service completed", "Cancelled"].map((s) => `<option ${s === l.status ? "selected" : ""}>${s}</option>`).join("")}</select></label><label class="field" style="margin-top:16px"><span>Progress / completion remarks</span><textarea name="remarks" maxlength="500">${esc(l.remarks || "")}</textarea></label><label class="field" style="margin-top:16px"><span>Completion photographs (optional)</span><input type="file" name="photos" accept="image/*" multiple><p class="field-note">File names are recorded locally; photos are not uploaded.</p></label><div class="modal-footer"><small>Customers see the updated booking status.</small><button class="btn btn-primary">Save progress ${icon("check")}</button></div></form>`,
+    `<div class="eyebrow">ASSIGNED SERVICE MANAGEMENT</div><h2>${esc(l.serviceName)}</h2><p class="modal-intro">${esc(l.id)} · ${esc(l.customer)} · ${esc(l.phone || "Contact not added")}</p><div class="summary-line"><span>Visit</span><span>${dateLabel(l.date)} · ${esc(l.time)}</span></div><div class="summary-line"><span>Location</span><span>${esc(l.address)}</span></div><div class="summary-line"><span>Requirements</span><span>${esc(l.description)}</span></div><form data-form="job-update" style="margin-top:23px"><label class="field"><span>Service status</span><select name="status">${[
+      l.status,
+      {
+        "Partner assigned": "Booking confirmed",
+        "Booking confirmed": "Service scheduled",
+        "Service scheduled": "Service in progress",
+        "Service in progress": "Service completed",
+      }[l.status],
+    ]
+      .filter(Boolean)
+      .map((s) => `<option ${s === l.status ? "selected" : ""}>${s}</option>`)
+      .join(
+        "",
+      )}</select></label><label class="field" style="margin-top:16px"><span>Progress / completion remarks</span><textarea name="remarks" maxlength="500">${esc(l.remarks || "")}</textarea></label><label class="field" style="margin-top:16px"><span>Completion photographs (optional)</span><input type="file" name="photos" accept="image/*" multiple><p class="field-note">Upload photos to document the completed work.</p></label><div class="modal-footer"><small>Customers see the updated booking status.</small><button class="btn btn-primary">Save progress ${icon("check")}</button></div></form>`,
   );
 }
+function assetOptions(image) {
+  return [
+    ...new Set(
+      [
+        image,
+        ...(state.assets || [
+          "plant-monstera.jpg",
+          "plant-succulent.jpg",
+          "plant-indoor.jpg",
+          "garden-care.jpg",
+          "garden-design.jpg",
+          "terracotta-pots.jpg",
+        ]),
+      ].filter(Boolean),
+    ),
+  ]
+    .map(
+      (name) =>
+        `<option value="${esc(name)}" ${name === image ? "selected" : ""}>${esc(name.startsWith("/api/") ? "Current uploaded photo" : name)}</option>`,
+    )
+    .join("");
+}
+function imageEditor(image) {
+  return `<label class="field full"><span>Nursery photo</span><select name="image">${assetOptions(image)}</select></label><label class="field full"><span>Upload a new photo (optional)</span><input type="file" name="photo" accept="image/jpeg,image/png,image/webp"><small>JPEG, PNG or WebP, up to 8 MB. Your current photo stays selected unless changed.</small></label>`;
+}
 function editProduct(id) {
-  const p = product(id) || {
+  const p = state.products.find((p) => p.id === id) || {
     name: "",
-    category: "Indoor plants",
-    price: 499,
+    category: state.categories[0] || "",
+    stock: 0,
+    price: "",
     oldPrice: 0,
-    stock: 10,
-    care: "Bright, indirect light",
-    water: "Water weekly",
+    care: "",
+    water: "",
     description: "",
     image: "plant-monstera.jpg",
-    badge: "Fresh from the nursery",
+    active: true,
   };
   modalState = { title: "Manage nursery product", kind: "product-edit", id };
   openModal(
-    `<div class="eyebrow">NURSERY CATALOG MANAGEMENT</div><h2>${id === "new" ? "A new green companion." : "Give your catalog a little care."}</h2><form data-form="product-edit"><div class="form-grid"><label class="field full"><span>Product name</span><input name="name" value="${esc(p.name)}" required maxlength="70"></label><label class="field"><span>Category</span><select name="category">${["Indoor plants", "Outdoor plants", "Pots & planters", "Garden essentials"].map((c) => `<option ${c === p.category ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field"><span>Available stock</span><input name="stock" type="number" min="0" max="100000" value="${p.stock}" required></label><label class="field"><span>Price (₹)</span><input name="price" type="number" min="1" max="1000000" value="${p.price}" required></label><label class="field"><span>Original price (₹)</span><input name="oldPrice" type="number" min="0" max="1000000" value="${p.oldPrice || 0}"></label><label class="field"><span>Light / care information</span><input name="care" value="${esc(p.care)}" required maxlength="80"></label><label class="field"><span>Water / additional information</span><input name="water" value="${esc(p.water)}" required maxlength="80"></label><label class="field full"><span>Description</span><textarea name="description" required maxlength="700">${esc(p.description)}</textarea></label><label class="field full"><span>Photo from the preview library</span><select name="image">${["plant-monstera.jpg", "plant-succulent.jpg", "plant-indoor.jpg", "garden-care.jpg", "garden-hero.png", "leaf-texture.jpg"].map((i) => `<option ${i === p.image ? "selected" : ""}>${i}</option>`).join("")}</select></label></div><div class="modal-footer"><small>Updates appear in the customer catalog.</small><button class="btn btn-primary">Save product ${icon("check")}</button></div></form>`,
+    `<div class="eyebrow">NURSERY CATALOG</div><h2>${id === "new" ? "Add a nursery product." : "Edit nursery product."}</h2><form data-form="product-edit"><div class="form-grid"><label class="field full"><span>Product name</span><input name="name" value="${esc(p.name)}" required maxlength="160"></label><label class="field"><span>Category</span><select name="category">${state.categories.map((c) => `<option ${c === p.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label><label class="field"><span>Available stock</span><input type="number" name="stock" min="0" max="1000000" value="${p.stock}" required></label><label class="field"><span>Price (₹)</span><input type="number" name="price" min="1" max="1000000" value="${p.price}" required></label><label class="field"><span>Original price (₹)</span><input type="number" name="oldPrice" min="0" max="1000000" value="${p.oldPrice || 0}"></label><label class="field"><span>Light / care information</span><input name="care" value="${esc(p.care)}" maxlength="160"></label><label class="field"><span>Water / additional information</span><input name="water" value="${esc(p.water)}" maxlength="160"></label><label class="field full"><span>Description</span><textarea name="description" required maxlength="5000">${esc(p.description)}</textarea></label>${imageEditor(p.image)}<label class="field"><span>Visible in shop</span><input type="checkbox" name="active" ${p.active !== false ? "checked" : ""}></label></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-action="close">Cancel</button><button type="submit" class="btn btn-primary">Save product</button></div></form>`,
   );
 }
-function editService(id) {
-  const s = service(id) || {
-    name: "",
-    category: "Garden care",
-    price: 699,
-    description: "",
-    packages: [
-      { name: "Standard visit", price: 699 },
-      { name: "Extended care", price: 1999 },
-    ],
+function editService(id, draft = null) {
+  const service = draft ||
+    state.services.find((s) => s.id === id) || {
+      name: "",
+      category: state.serviceCategories[0] || "",
+      description: "",
+      image: "garden-design.jpg",
+      active: true,
+      packages: [{ name: "", price: "", description: "" }],
+    };
+  modalState = {
+    title: "Manage garden service",
+    kind: "service-edit",
+    id,
+    pendingPhoto: draft?.pendingPhoto,
   };
-  modalState = { title: "Manage garden service", kind: "service-edit", id };
   openModal(
-    `<div class="eyebrow">DYNAMIC SERVICE MANAGEMENT</div><h2>${id === "new" ? "Something new to grow." : "Thoughtfully shape this service."}</h2><form data-form="service-edit"><div class="form-grid"><label class="field full"><span>Service name</span><input name="name" value="${esc(s.name)}" required maxlength="70"></label><label class="field full"><span>Category</span><select name="category">${["Garden care", "Design & landscaping", "Small-space gardens"].map((c) => `<option ${c === s.category ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field full"><span>Description</span><textarea name="description" required maxlength="500">${esc(s.description)}</textarea></label><label class="field"><span>First package name</span><input name="package1" value="${esc(s.packages[0].name)}" required maxlength="60"></label><label class="field"><span>First package price (₹)</span><input name="price1" type="number" min="1" max="1000000" value="${s.packages[0].price}" required></label><label class="field"><span>Second package name</span><input name="package2" value="${esc(s.packages[1]?.name || "Extended care")}" required maxlength="60"></label><label class="field"><span>Second package price (₹)</span><input name="price2" type="number" min="1" max="1000000" value="${s.packages[1]?.price || 1999}" required></label></div><div class="modal-footer"><small>Updates appear in service booking.</small><button class="btn btn-primary">Save service ${icon("check")}</button></div></form>`,
+    `<div class="eyebrow">SERVICE CATALOG</div><h2>${id === "new" ? "Add a garden service." : "Edit garden service."}</h2><form data-form="service-edit"><div class="form-grid"><label class="field full"><span>Service name</span><input name="name" value="${esc(service.name)}" required maxlength="160"></label><label class="field full"><span>Category</span><select name="category">${state.serviceCategories.map((c) => `<option ${c === service.category ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label><label class="field full"><span>Description</span><textarea name="description" required maxlength="5000">${esc(service.description)}</textarea></label>${imageEditor(service.image)}<label class="field"><span>Visible for bookings</span><input type="checkbox" name="active" ${service.active !== false && service.active !== 0 ? "checked" : ""}></label></div>${modalState.pendingPhoto ? `<p class="field-note">Selected photo: ${esc(modalState.pendingPhoto.name)}</p>` : ""}<h3>Packages</h3><p class="field-note">Manage one to ten packages. Existing package IDs and prices are preserved.</p>${service.packages.map((p, index) => `<fieldset class="package-editor"><legend>Package ${index + 1}</legend><input type="hidden" name="packageId" value="${esc(p.id || "")}"><div class="form-grid"><label class="field"><span>Package ${index + 1} name</span><input name="packageName" value="${esc(p.name)}" required maxlength="160"></label><label class="field"><span>Package ${index + 1} price (₹)</span><input type="number" name="packagePrice" min="1" max="1000000" value="${p.price}" required></label><label class="field full"><span>Package ${index + 1} description</span><textarea name="packageDescription" maxlength="2000">${esc(p.description || "")}</textarea></label></div>${service.packages.length > 1 ? `<button type="button" class="text-link" data-action="service-package-remove" data-id="${index}">Remove package ${index + 1}</button>` : ""}</fieldset>`).join("")}<div class="modal-footer"><button type="button" class="btn btn-outline" data-action="service-package-add" ${service.packages.length >= 10 ? "disabled" : ""}>Add package</button><button type="submit" class="btn btn-primary">Save service</button></div></form>`,
+  );
+}
+function changeServicePackages(action, index) {
+  const form = document.querySelector('[data-form="service-edit"]'),
+    fd = new FormData(form),
+    draft = Object.fromEntries(fd);
+  draft.active = fd.has("active");
+  draft.pendingPhoto = form.elements.photo.files[0] || modalState.pendingPhoto;
+  draft.packages = fd.getAll("packageName").map((name, i) => ({
+    id: fd.getAll("packageId")[i],
+    name,
+    price: fd.getAll("packagePrice")[i],
+    description: fd.getAll("packageDescription")[i],
+  }));
+  if (action === "service-package-add" && draft.packages.length < 10)
+    draft.packages.push({ name: "", price: "", description: "" });
+  if (action === "service-package-remove" && draft.packages.length > 1)
+    draft.packages.splice(Number(index), 1);
+  editService(modalState.id, draft);
+}
+async function searchAdminUsers(query) {
+  const result = await api.get(
+    "/admin/users?limit=25&q=" + encodeURIComponent(query.trim()),
+  );
+  state.adminUserQuery = query.trim();
+  state.users = result.items;
+  state.cursors.users = result.nextCursor;
+  render();
+}
+function passwordForm() {
+  modalState = { title: "Account security" };
+  openModal(
+    `<div class="eyebrow">ACCOUNT SECURITY</div><h2>Change your password.</h2><form data-form="change-password"><label class="field"><span>Current password</span><input type="password" name="currentPassword" autocomplete="current-password" required maxlength="128"></label><label class="field"><span>New password</span><input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><label class="field"><span>Confirm new password</span><input type="password" name="confirmation" minlength="12" maxlength="128" autocomplete="new-password" required></label><p class="field-note">Your other sessions will be signed out after this change.</p><div class="modal-footer"><button type="submit" class="btn btn-primary">Update password</button></div></form>`,
+  );
+}
+function refundConfirmation(id) {
+  const p = state.payments.find((p) => p.id === id);
+  if (!p) return;
+  modalState = { title: "Confirm full refund" };
+  openModal(
+    `<div class="eyebrow">PAYMENT RECONCILIATION</div><h2>Request a full refund?</h2><p>${esc(p.order_id || p.booking_id)}</p><div class="summary-line"><span>Amount</span><strong>${money(p.amount_paise / 100)}</strong></div><p>The worker will submit or reconcile this refund with the original payment provider.</p><div class="modal-footer"><button type="button" class="btn btn-outline" data-action="close">Keep payment</button><button type="button" class="btn btn-primary" data-action="confirm-refund" data-id="${p.id}">Request full refund</button></div>`,
   );
 }
 function exportCSV(type) {
-  let headers, rows;
-  if (type === "leads") {
-    headers = [
-      "ID",
-      "Service",
-      "Customer",
-      "City",
-      "Date",
-      "Status",
-      "Recipients",
-      "Assigned partner",
-    ];
-    rows = state.leads.map((l) => [
-      l.id,
-      l.serviceName,
-      l.customer,
-      l.city,
-      l.date,
-      l.status,
-      l.recipients.length,
-      state.partners.find((p) => p.id === l.assigned)?.name || "",
-    ]);
-  }
-  if (type === "partners") {
-    headers = ["Business", "Name", "City", "Status", "Available", "Categories"];
-    rows = state.partners.map((p) => [
-      p.name,
-      p.person,
-      p.city,
-      p.status,
-      p.available,
-      p.categories.join("; "),
-    ]);
-  }
-  if (type === "orders") {
-    headers = ["Order", "Customer", "Address", "Total", "Status", "Payment"];
-    rows = state.orders.map((o) => [
-      o.id,
-      o.name,
-      o.address,
-      o.total,
-      o.status,
-      "Demo payment",
-    ]);
-  }
-  if (type === "products") {
-    headers = ["ID", "Product", "Category", "Price", "Stock"];
-    rows = state.products.map((p) => [
-      p.id,
-      p.name,
-      p.category,
-      p.price,
-      p.stock,
-    ]);
-  }
-  const safeCSV = (v) => {
-    let s = String(v ?? "");
-    if (/^[=+@-]/.test(s)) s = "'" + s;
-    return '"' + s.replaceAll('"', '""') + '"';
-  };
-  const csv = [headers, ...rows]
-    .map((row) => row.map(safeCSV).join(","))
-    .join("\r\n");
-  const a = document.createElement("a"),
-    url = URL.createObjectURL(
-      new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }),
-    );
-  a.href = url;
-  a.download = `kaushik-${type}-${today()}.csv`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast("Your report is ready to download.");
+  api.download(type).catch((error) => toast(error.message));
 }
 document.addEventListener("click", (event) => {
+  if (event.target.closest(".skip-content")) {
+    event.preventDefault();
+    const main = $("main");
+    if (main) {
+      main.tabIndex = -1;
+      main.focus();
+      main.scrollIntoView({ block: "start" });
+    }
+    return;
+  }
   const el = event.target.closest("[data-action],[data-scroll]");
   if (!el) {
     if (!event.target.closest(".workspace"))
@@ -1333,6 +1558,14 @@ document.addEventListener("click", (event) => {
     id = el.dataset.id;
   if (a !== "close-overlay") event.preventDefault();
   switch (a) {
+    case "browse-category":
+      shopCategory = id;
+      shopQuery = "";
+      favoritesOnly = false;
+      shopSort = "featured";
+      if (route === "shop") render(true);
+      else location.hash = "shop";
+      break;
     case "workspace": {
       let menu = $(".workspace-menu");
       menu.classList.toggle("hidden");
@@ -1409,13 +1642,20 @@ document.addEventListener("click", (event) => {
       persist();
       el.classList.toggle("saved", state.favorites.includes(id));
       el.setAttribute("aria-pressed", state.favorites.includes(id));
+      el.setAttribute(
+        "aria-label",
+        `${state.favorites.includes(id) ? "Unsave" : "Save"} ${product(id).name}`,
+      );
       toast(
         state.favorites.includes(id)
           ? "Saved for another little green moment."
           : "Removed from your saved plants.",
       );
-      if (route === "shop" && favoritesOnly)
+      if (route === "shop" && favoritesOnly) {
         $("#catalog-results").innerHTML = filteredProducts();
+        $("#catalog-count").textContent =
+          `${catalogProducts().length} products found`;
+      }
       break;
     }
     case "favorites":
@@ -1458,42 +1698,8 @@ document.addEventListener("click", (event) => {
       modalState.step--;
       showBooking();
       break;
-    case "submit-booking": {
-      let s = service(modalState.serviceId),
-        p = s.packages[modalState.packageIndex],
-        matches = matchingPartners(s, modalState.form.city),
-        lead = {
-          ...modalState.form,
-          customer: modalState.form.name,
-          id:
-            "KN-" +
-            (Math.max(
-              1042,
-              ...state.leads.map((l) => Number(l.id.split("-")[1]) || 0),
-            ) +
-              1),
-          serviceId: s.id,
-          serviceName: s.name,
-          package: p.name,
-          price: p.price,
-          status: matches.length
-            ? "Finding service partner"
-            : "Request submitted",
-          recipients: matches.map((p) => p.id),
-          declined: [],
-          assigned: null,
-          created: Date.now(),
-          sample: false,
-        };
-      matches.forEach((p) => p.received++);
-      state.leads.unshift(lead);
-      persist();
-      firebaseService.saveLead(lead);
-      openModal(
-        `<div class="success-state"><div class="success-icon">${icon("garden")}</div><div class="eyebrow" style="justify-content:center">YOUR REQUEST HAS TAKEN ROOT</div><h2>Good things are on their way.</h2><p>${esc(lead.id)} · ${esc(s.name)}<br>${matches.length ? `Your demo request was shared with ${matches.length} matching partners in this browser.` : "Your request is waiting for nursery review."}</p><p>You can now follow it in My service bookings, or open the partner workspace to try accepting the lead.</p><a href="#orders" data-action="close-link" class="btn btn-primary">View my booking ${icon("arrow")}</a></div>`,
-      );
+    case "submit-booking":
       break;
-    }
     case "orders-tab":
       orderTab = id;
       render();
@@ -1502,15 +1708,11 @@ document.addEventListener("click", (event) => {
       account();
       break;
     case "logout":
-      state.user = null;
-      persist();
-      closeModal();
-      toast("You’ve signed out of the preview.");
       break;
     case "location":
       modalState = { title: "Choose your city" };
       openModal(
-        `<div class="eyebrow">GROWING NEAR YOU</div><h2>Where’s your little green space?</h2><p class="modal-intro">Choose a demo city for service matching.</p><form data-form="location"><label class="field"><span>Your city</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === state.city ? "selected" : ""}>${c}</option>`).join("")}</select></label><div class="modal-footer"><small>Partner availability varies by demo city.</small><button class="btn btn-primary">Save city ${icon("check")}</button></div></form>`,
+        `<div class="eyebrow">GROWING NEAR YOU</div><h2>Where’s your little green space?</h2><p class="modal-intro">Choose your city for service matching.</p><form data-form="location"><label class="field"><span>Your city</span><select name="city">${["Hyderabad", "Bengaluru", "Chennai", "Vijayawada"].map((c) => `<option ${c === state.city ? "selected" : ""}>${c}</option>`).join("")}</select></label><div class="modal-footer"><small>Partner availability varies by city.</small><button class="btn btn-primary">Save city ${icon("check")}</button></div></form>`,
       );
       break;
     case "workspace-tab":
@@ -1518,108 +1720,39 @@ document.addEventListener("click", (event) => {
       render();
       break;
     case "super-admin-lock":
-      isSuperAdminUnlocked = false;
-      toast("Super Admin panel locked.");
-      render();
       break;
     case "partner-register":
       registration();
       break;
-    case "partner-status": {
-      let p = state.partners.find((p) => p.id === id);
-      p.status = el.dataset.status;
-      p.available = p.status === "Approved";
-      persist();
-      render();
-      toast(`${p.name}: ${p.status.toLowerCase()}.`);
+    case "partner-status":
       break;
-    }
-    case "accept-lead": {
-      try {
-        let fresh = JSON.parse(localStorage.getItem("kaushik-preview-v1"));
-        if (fresh?.version === 1) state = fresh;
-      } catch {}
-      let p = activePartner(),
-        l = state.leads.find((l) => l.id === id);
-      if (l.status !== "Finding service partner" || l.assigned)
-        return toast("This request is already assigned or closed.");
-      if (
-        p.status !== "Approved" ||
-        !p.available ||
-        !l.recipients.includes(p.id) ||
-        l.declined.includes(p.id)
-      )
-        return toast("This lead is not currently available to your profile.");
-      l.assigned = p.id;
-      l.status = "Partner assigned";
-      persist();
-      render();
-      toast("The garden is in your hands. Assignment confirmed.");
+    case "accept-lead":
       break;
-    }
-    case "decline-lead": {
-      let l = state.leads.find((l) => l.id === id);
-      l.declined.push(activePartner().id);
-      persist();
-      render();
-      toast("Lead declined. It remains available to other recipients.");
+    case "decline-lead":
       break;
-    }
     case "job-update":
       showJob(id);
       break;
     case "assign":
       showAssign(id);
       break;
-    case "unassign": {
-      let l = state.leads.find((l) => l.id === id);
-      l.assigned = null;
-      l.status = l.recipients.length
-        ? "Finding service partner"
-        : "Request submitted";
-      persist();
-      closeModal();
-      render();
-      toast("Assignment removed. The request is open again.");
+    case "unassign":
       break;
-    }
     case "cancel-booking":
       modalState = { title: "Cancel service request", id };
       openModal(
-        `<div class="eyebrow">MANAGE YOUR REQUEST</div><h2>Cancel this garden request?</h2><p class="modal-intro">${esc(id)} will close for all partners. This is a browser-local demo action.</p><div class="modal-footer"><button class="btn btn-outline" data-action="close">Keep request</button><button class="btn btn-primary" data-action="confirm-cancel" data-id="${id}">Cancel request</button></div>`,
+        `<div class="eyebrow">MANAGE YOUR REQUEST</div><h2>Cancel this garden request?</h2><p class="modal-intro">${esc(id)} will close for all partners. This closes the request for all partners.</p><div class="modal-footer"><button class="btn btn-outline" data-action="close">Keep request</button><button class="btn btn-primary" data-action="confirm-cancel" data-id="${id}">Cancel request</button></div>`,
       );
       break;
-    case "confirm-cancel": {
-      let l = state.leads.find((l) => l.id === id);
-      l.status = "Cancelled";
-      persist();
-      closeModal();
-      render();
-      toast("Service request cancelled.");
+    case "confirm-cancel":
       break;
-    }
-    case "payment": {
-      let record =
-        el.dataset.kind === "product"
-          ? state.orders.find((o) => o.id === id)
-          : state.leads.find((l) => l.id === id);
-      record.payment = el.dataset.status;
-      persist();
-      render();
-      toast("Demo payment status updated. No money moved.");
+    case "payment":
       break;
-    }
     case "product-edit":
       editProduct(id);
       break;
     case "service-edit":
       editService(id);
-      break;
-    case "reset-firebase":
-      localStorage.removeItem("kaushik_firebase_config");
-      firebaseService.init();
-      toast("Firebase configuration cleared.");
-      closeModal();
       break;
     case "export":
       exportCSV(id);
@@ -1628,7 +1761,7 @@ document.addEventListener("click", (event) => {
       let l = state.leads.find((l) => l.id === id);
       modalState = { title: "Review your service", kind: "review", id };
       openModal(
-        `<div class="eyebrow">A LITTLE FEEDBACK HELPS US GROW</div><h2>How did your garden visit go?</h2><p class="modal-intro">${esc(l.serviceName)}</p><form data-form="review"><label class="field"><span>Rating</span><select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${l.review?.rating === n ? "selected" : ""}>${n} ${n === 1 ? "star" : "stars"}</option>`).join("")}</select></label><label class="field" style="margin-top:18px"><span>Your feedback</span><textarea name="text" required maxlength="500">${esc(l.review?.text || "")}</textarea></label><div class="modal-footer"><small>Shared in the local demo record.</small><button class="btn btn-primary">Save review ${icon("star")}</button></div></form>`,
+        `<div class="eyebrow">A LITTLE FEEDBACK HELPS US GROW</div><h2>How did your garden visit go?</h2><p class="modal-intro">${esc(l.serviceName)}</p><form data-form="review"><label class="field"><span>Rating</span><select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${l.review?.rating === n ? "selected" : ""}>${n} ${n === 1 ? "star" : "stars"}</option>`).join("")}</select></label><label class="field" style="margin-top:18px"><span>Your feedback</span><textarea name="text" required maxlength="500">${esc(l.review?.text || "")}</textarea></label><div class="modal-footer"><small>Your feedback is saved with this service booking.</small><button class="btn btn-primary">Save review ${icon("star")}</button></div></form>`,
       );
       break;
     }
@@ -1641,7 +1774,7 @@ document.addEventListener("click", (event) => {
     case "app-info":
       modalState = { title: "Our Android experience" };
       openModal(
-        `<div class="eyebrow">YOUR GREEN WORLD, IN YOUR POCKET</div><h2>Made for a greener everyday.</h2><p class="modal-intro">The proposed platform includes a customer Android app and a dedicated Android app for service professionals.</p><div class="package-grid"><a class="package" href="#home" data-action="close-link"><h3>Customer experience</h3><p>Explore services, buy nursery products and manage bookings.</p>${icon("leaf")}</a><a class="package" href="#partner" data-action="close-link"><h3>Partner experience</h3><p>Receive matching leads, accept assignments and manage jobs.</p>${icon("briefcase")}</a></div><p class="field-note">These responsive screens preview the proposed app flows. Android binaries and Google Play listings are not part of this frontend build.</p>`,
+        `<div class="eyebrow">YOUR GREEN WORLD, IN YOUR POCKET</div><h2>Made for a greener everyday.</h2><p class="modal-intro">The proposed platform includes a customer Android app and a dedicated Android app for service professionals.</p><div class="package-grid"><a class="package" href="#home" data-action="close-link"><h3>Customer experience</h3><p>Explore services, buy nursery products and manage bookings.</p>${icon("leaf")}</a><a class="package" href="#partner" data-action="close-link"><h3>Partner experience</h3><p>Receive matching leads, accept assignments and manage jobs.</p>${icon("briefcase")}</a></div><p class="field-note">These responsive screens preview the proposed app flows. Android binaries and Google Play listings are separate deliverables.</p>`,
       );
       break;
     case "legal": {
@@ -1650,7 +1783,14 @@ document.addEventListener("click", (event) => {
         title: pol.title,
       };
       openModal(
-        `<div class="eyebrow">CUSTOMER PROTECTION & COMPLIANCE</div><h2>${esc(pol.title)}</h2><p class="modal-intro">${esc(pol.subtitle)}</p><p class="field-note" style="margin-bottom:16px">Last updated: ${esc(pol.lastUpdated)} · Kaushik Nursery & Botanical Gardens Pvt Ltd</p><div class="policy-body" style="font-size:14px;line-height:1.7;color:var(--forest-800,#24392b);max-height:55vh;overflow-y:auto;padding-right:8px">${pol.content}</div><div class="modal-footer" style="margin-top:20px"><small>Compliant with RBI, IT Act 2000 & Razorpay Merchant Policies.</small><button class="btn btn-primary" data-action="close">Understood ${icon("check")}</button></div>`,
+        `<div class="eyebrow">CUSTOMER PROTECTION & COMPLIANCE</div><h2>${esc(pol.title)}</h2><p class="modal-intro">${esc(pol.subtitle)}</p><p class="field-note" style="margin-bottom:16px">Last updated: ${esc(pol.lastUpdated)} · Kaushik Nursery</p><div class="policy-body" style="font-size:14px;line-height:1.7;color:var(--forest-800,#24392b);max-height:55vh;overflow-y:auto;padding-right:8px">${
+          id === "contact"
+            ? contactDetails()
+            : esc(pol.content)
+                .split("\n\n")
+                .map((p) => `<p>${p}</p>`)
+                .join("")
+        }</div><div class="modal-footer" style="margin-top:20px"><small>Draft operational information · Pending nursery approval.</small><button class="btn btn-primary" data-action="close">Understood ${icon("check")}</button></div>`,
       );
       break;
     }
@@ -1660,60 +1800,27 @@ document.addEventListener("click", (event) => {
     case "address-edit":
       showAddressModal(id);
       break;
-    case "address-delete": {
-      if (state.user && state.user.addresses) {
-        state.user.addresses = state.user.addresses.filter((a) => a.id !== id);
-        if (state.user.addresses.length && !state.user.addresses.some((a) => a.isDefault)) {
-          state.user.addresses[0].isDefault = true;
-          state.user.address = state.user.addresses[0].line;
-        }
-        persist();
-        firebaseService.saveUser(state.user);
-        render();
-        toast("Address removed.");
-      }
+    case "address-delete":
       break;
-    }
-    case "address-set-default": {
-      if (state.user && state.user.addresses) {
-        state.user.addresses.forEach((a) => (a.isDefault = a.id === id));
-        const def = state.user.addresses.find((a) => a.id === id);
-        if (def) {
-          state.user.address = def.line;
-          state.user.city = def.city;
-          state.city = def.city;
-        }
-        persist();
-        firebaseService.saveUser(state.user);
-        render();
-        toast("Default delivery address updated.");
-      }
+    case "address-set-default":
       break;
-    }
-    case "firebase-config": {
-      modalState = { title: "Firebase Backend Configuration" };
-      const savedConfig = localStorage.getItem("kaushik_firebase_config");
-      let cfg = {};
-      try {
-        cfg = savedConfig ? JSON.parse(savedConfig) : {};
-      } catch {}
-      openModal(
-        `<div class="eyebrow">MODULAR FIREBASE V10 BACKEND</div><h2>Connect Live Firebase Project</h2><p class="modal-intro">Kaushik Nursery automatically syncs orders, leads, and customer accounts to Google Cloud Firestore when configured.</p><form data-form="firebase-config"><div class="form-grid"><label class="field full"><span>API Key</span><input name="apiKey" value="${esc(cfg.apiKey || "AIzaSyAwBtAF6Z8P1kJtcWEZCmRYOuloG4gogeQ")}" required></label><label class="field"><span>Project ID</span><input name="projectId" value="${esc(cfg.projectId || "kaushiknursery-71d68")}" required></label><label class="field"><span>Auth Domain</span><input name="authDomain" value="${esc(cfg.authDomain || "kaushiknursery-71d68.firebaseapp.com")}" required></label><label class="field"><span>Storage Bucket</span><input name="storageBucket" value="${esc(cfg.storageBucket || "kaushiknursery-71d68.firebasestorage.app")}"></label><label class="field"><span>App ID</span><input name="appId" value="${esc(cfg.appId || "1:720581963962:web:04a0b5814ac2fec121d283")}"></label></div><div class="info-banner">${icon("shield")}Project: <strong>kaushiknursery-71d68</strong>. Real-time Firestore sync active for <code>orders</code>, <code>leads</code>, and <code>users</code> collections.</div><div class="modal-footer"><button type="button" class="text-link" data-action="reset-firebase">Clear config</button><button class="btn btn-primary" type="submit">Save Firebase Config ${icon("check")}</button></div></form>`,
-      );
-      break;
-    }
   }
 });
 document.addEventListener("input", (event) => {
   if (event.target.id === "product-search") {
     shopQuery = event.target.value;
     $("#catalog-results").innerHTML = filteredProducts();
+    $("#catalog-count").textContent =
+      `${catalogProducts().length} products shown`;
+    clearTimeout(catalogTimer);
+    catalogTimer = setTimeout(() => fetchCatalog(), 200);
   }
 });
 document.addEventListener("change", (event) => {
   if (event.target.id === "product-sort") {
     shopSort = event.target.value;
     $("#catalog-results").innerHTML = filteredProducts();
+    fetchCatalog();
   }
   if (event.target.name === "selected_address_id") {
     const selId = event.target.value;
@@ -1725,7 +1832,8 @@ document.addEventListener("change", (event) => {
         if (form.elements.phone) form.elements.phone.value = addr.phone;
         if (form.elements.address) form.elements.address.value = addr.line;
         if (form.elements.city) form.elements.city.value = addr.city;
-        if (form.elements.postal) form.elements.postal.value = addr.pincode || "500033";
+        if (form.elements.postal)
+          form.elements.postal.value = addr.pincode || "500033";
       }
       toast(`Selected address: ${addr.tag}`);
     }
@@ -1742,460 +1850,19 @@ document.addEventListener("submit", (event) => {
   if (!form.dataset.form) return;
   event.preventDefault();
   if (!form.reportValidity()) return;
-  const fd = new FormData(form),
-    f = Object.fromEntries(fd),
-    type = form.dataset.form;
-  if (type === "newsletter") {
-    if (!state.subscribers.includes(f.email)) state.subscribers.push(f.email);
-    persist();
-    form.reset();
-    toast("You’re on the demo list. No subscription was sent.");
-    return;
+  const f = Object.fromEntries(new FormData(form));
+  if (form.dataset.form === "catalog-search") {
+    shopQuery = f.query.trim();
+    shopCategory = "All plants";
+    favoritesOnly = false;
+    if (route === "shop") render(true);
+    else location.hash = "shop";
   }
-  if (type === "booking-details") {
-    modalState.form = {
-      ...modalState.form,
-      ...f,
-      images: [...form.elements.images.files].map((file) => file.name),
-    };
-    modalState.step = 3;
-    showBooking();
-    return;
-  }
-  if (type === "firebase-config") {
-    const newConfig = {
-      apiKey: f.apiKey.trim(),
-      projectId: f.projectId.trim(),
-      authDomain: f.authDomain.trim(),
-      storageBucket: f.storageBucket ? f.storageBucket.trim() : "",
-      appId: f.appId ? f.appId.trim() : "",
-    };
-    firebaseService.saveConfig(newConfig);
-    toast("Firebase configuration saved successfully.");
-    closeModal();
-    return;
-  }
-  if (type === "checkout") {
-    if (!state.cart.length) return;
-    for (let c of state.cart)
-      if (c.qty > product(c.id).stock)
-        return toast("Stock changed. Please update your shopping bag.");
-
-    const payBtn = $("#pay-button");
-    if (payBtn) {
-      payBtn.disabled = true;
-      payBtn.textContent = "Initiating payment...";
-    }
-
-    const orderTotal = cartTotal() + delivery();
-    const orderId = "NP-" + (1001 + state.orders.length);
-
-    // Call server to create Razorpay Order
-    fetch("/api/razorpay/create-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount: orderTotal,
-        receipt: orderId,
-        notes: {
-          customerName: f.name,
-          phone: f.phone,
-          city: f.city,
-        },
-      }),
-    })
-      .then((res) => res.json())
-      .then(async (rzpOrder) => {
-        // Fetch public Razorpay key ID
-        const cfgRes = await fetch("/api/config");
-        const cfg = await cfgRes.json();
-        const rzpKeyId = cfg.razorpayKeyId || "rzp_test_placeholder";
-
-        const completeOrder = async (paymentDetails = {}) => {
-          const o = {
-            id: orderId,
-            name: f.name,
-            phone: f.phone,
-            address: `${f.address}, ${f.city} ${f.postal}`,
-            items: state.cart.map((c) => ({
-              ...c,
-              name: product(c.id).name,
-              price: product(c.id).price,
-            })),
-            total: orderTotal,
-            created: Date.now(),
-            status: "Order placed",
-            payment: paymentDetails.paymentId
-              ? `Paid (Razorpay: ${paymentDetails.paymentId})`
-              : "Paid via Razorpay",
-            razorpay: {
-              orderId: rzpOrder.id,
-              ...paymentDetails,
-            },
-          };
-
-          // Sync to Firestore if Firebase configured
-          await firebaseService.saveOrder(o);
-
-          state.orders.unshift(o);
-          state.cart.forEach((c) => (product(c.id).stock -= c.qty));
-          state.cart = [];
-          persist();
-          updateCartCount();
-
-          openModal(
-            `<div class="success-state"><div class="success-icon">${icon("leaf")}</div><div class="eyebrow" style="justify-content:center">PAYMENT SUCCESSFUL · ORDER CONFIRMED</div><h2>Your order is planted.</h2><p>${o.id} · ${money(o.total)}<br>Razorpay Payment ID: <strong>${esc(paymentDetails.paymentId || "rzp_paid_mock")}</strong><br>A confirmation has been securely recorded.</p><button class="btn btn-primary" data-action="view-product-orders">Track my order ${icon("arrow")}</button></div>`,
-          );
-          const b = $("[data-action=view-product-orders]");
-          if (b) {
-            b.onclick = () => {
-              orderTab = "products";
-              closeModal();
-              if (route === "orders") render();
-              else location.hash = "orders";
-            };
-          }
-        };
-
-        // If Razorpay SDK is loaded and we have a valid key (or real credentials)
-        if (typeof window.Razorpay !== "undefined" && cfg.hasValidCredentials) {
-          const options = {
-            key: rzpKeyId,
-            amount: rzpOrder.amount,
-            currency: rzpOrder.currency || "INR",
-            name: "Kaushik Nursery",
-            description: `Order ${orderId}`,
-            image: "./assets/favicon.svg",
-            order_id: rzpOrder.id,
-            prefill: {
-              name: f.name,
-              contact: f.phone,
-            },
-            notes: {
-              address: `${f.address}, ${f.city}`,
-            },
-            theme: {
-              color: "#153e2e",
-            },
-            handler: async function (response) {
-              try {
-                // Verify signature on server
-                const verifyRes = await fetch("/api/razorpay/verify-payment", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(response),
-                });
-                const verifyData = await verifyRes.json();
-                if (verifyData.success) {
-                  await completeOrder({
-                    paymentId: response.razorpay_payment_id,
-                    signature: response.razorpay_signature,
-                  });
-                } else {
-                  toast("Payment verification failed. Please contact support.");
-                }
-              } catch (err) {
-                console.error("Verification error:", err);
-                await completeOrder({
-                  paymentId: response.razorpay_payment_id,
-                });
-              }
-            },
-            modal: {
-              ondismiss: function () {
-                if (payBtn) {
-                  payBtn.disabled = false;
-                  payBtn.textContent = `Pay with Razorpay ${money(orderTotal)}`;
-                }
-                toast("Payment checkout closed.");
-              },
-            },
-          };
-          const rzp = new window.Razorpay(options);
-          rzp.open();
-        } else {
-          // Test/Mock mode fallback when keys are placeholders
-          toast("Simulating Razorpay Payment Gateway modal (Test Mode)...");
-          setTimeout(async () => {
-            await completeOrder({
-              paymentId: `pay_mock_${Date.now().toString(36)}`,
-              isMock: true,
-            });
-          }, 900);
-        }
-      })
-      .catch((err) => {
-        console.error("Checkout payment error:", err);
-        toast("Unable to connect to payment server. Please try again.");
-        if (payBtn) {
-          payBtn.disabled = false;
-          payBtn.textContent = `Pay with Razorpay ${money(orderTotal)}`;
-        }
-      });
-    return;
-  }
-  if (type === "login-phone") {
-    modalState.form = f;
-    openModal(
-      `<div class="eyebrow">ONE LITTLE CHECK</div><h2>A greener welcome awaits.</h2><p class="modal-intro">Use demo code <strong>123456</strong> to try verification for ${esc(f.phone)}. No SMS was sent.</p><form data-form="login-code"><label class="field"><span>Verification code</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" required placeholder="123456" autocomplete="one-time-code"></label><div class="modal-footer"><small>Demo verification only.</small><button class="btn btn-primary">Verify & continue ${icon("arrow")}</button></div></form>`,
-    );
-    return;
-  }
-  if (type === "login-code") {
-    if (f.code !== "123456") return toast("Use the demo code 123456.");
-    state.user = modalState.form;
-    persist();
-    closeModal();
-    if (isSuperAdminUser(state.user.email)) {
-      isSuperAdminUnlocked = true;
-      location.hash = "super-admin";
-      toast(`Welcome Super Admin, ${state.user.name}. Master panel unlocked.`);
-    } else {
-      location.hash = "customer-admin";
-      toast(`Welcome, ${state.user.name}. Opening your Customer Portal.`);
-    }
-    render();
-    return;
-  }
-  if (type === "location") {
+  if (form.dataset.form === "location") {
     state.city = f.city;
     persist();
     closeModal();
     render();
-    toast(`Your demo city is ${state.city}.`);
-    return;
-  }
-  if (type === "partner-profile") {
-    let p = activePartner();
-    Object.assign(p, f, {
-      available: fd.has("available"),
-      categories:
-        f.category === "all"
-          ? ["Garden care", "Design & landscaping", "Small-space gardens"]
-          : [f.category],
-    });
-    persist();
-    render();
-    toast("Your partner profile has been updated.");
-    return;
-  }
-  if (type === "partner-register") {
-    const p = {
-      ...f,
-      id: "t" + Date.now(),
-      categories:
-        f.category === "all"
-          ? ["Garden care", "Design & landscaping", "Small-space gardens"]
-          : [f.category],
-      status: "Pending",
-      available: false,
-      received: 0,
-      documents: [...form.elements.documents.files].map((file) => file.name),
-    };
-    state.partners.push(p);
-    state.activePartnerId = p.id;
-    persist();
-    openModal(
-      `<div class="success-state"><div class="success-icon">${icon("shield")}</div><h2>Your next chapter has begun.</h2><p>${esc(p.name)} is awaiting nursery approval. Open the admin partner directory to approve this demo application.</p><a href="#partner" class="btn btn-primary" data-action="close-link">View partner workspace ${icon("arrow")}</a></div>`,
-    );
-    if (route === "partner") render();
-    return;
-  }
-  if (type === "lead-settings") {
-    state.maxPartners = Math.min(
-      20,
-      Math.max(1, Math.floor(Number(f.maxPartners))),
-    );
-    state.rotation = fd.has("rotation");
-    persist();
-    toast("Lead distribution rules saved.");
-    return;
-  }
-  if (type === "notification") {
-    state.notifications.unshift({ ...f, created: Date.now() });
-    persist();
-    render();
-    toast("Demo notification saved. No push was sent.");
-    return;
-  }
-  if (type === "assign") {
-    let l = state.leads.find((l) => l.id === modalState.id);
-    l.assigned = f.partner;
-    l.status = "Partner assigned";
-    if (!l.recipients.includes(f.partner)) l.recipients.push(f.partner);
-    persist();
-    closeModal();
-    render();
-    toast("Partner assigned. Other recipients see this lead as closed.");
-    return;
-  }
-  if (type === "job-update") {
-    let l = state.leads.find((l) => l.id === modalState.id);
-    Object.assign(l, {
-      status: f.status,
-      remarks: f.remarks,
-      completionPhotos: [...form.elements.photos.files].map(
-        (file) => file.name,
-      ),
-    });
-    persist();
-    closeModal();
-    render();
-    toast("Service progress updated.");
-    return;
-  }
-  if (type === "product-edit") {
-    let p = product(modalState.id),
-      newData = {
-        ...f,
-        price: Number(f.price),
-        oldPrice: Number(f.oldPrice),
-        stock: Number(f.stock),
-      };
-    if (newData.oldPrice && newData.oldPrice < newData.price)
-      return toast("Original price must be at least the selling price.");
-    if (p) Object.assign(p, newData);
-    else
-      state.products.push({
-        ...newData,
-        id: "p" + Date.now(),
-        badge: "Fresh from the nursery",
-      });
-    persist();
-    closeModal();
-    render();
-    toast("Nursery catalog updated.");
-    return;
-  }
-  if (type === "service-edit") {
-    let s = service(modalState.id),
-      newData = {
-        name: f.name,
-        category: f.category,
-        description: f.description,
-        price: Number(f.price1),
-        packages: [
-          {
-            name: f.package1,
-            price: Number(f.price1),
-            description:
-              s?.packages[0]?.description ||
-              "A professional visit for your garden.",
-          },
-          {
-            name: f.package2,
-            price: Number(f.price2),
-            description:
-              s?.packages[1]?.description ||
-              "Extended care for your green space.",
-          },
-        ],
-      };
-    if (s) Object.assign(s, newData);
-    else
-      state.services.push({
-        ...newData,
-        id: "s" + Date.now(),
-        image: "garden-design.jpg",
-        label: "SOMETHING BEAUTIFUL IS GROWING",
-      });
-    persist();
-    closeModal();
-    render();
-    toast("Service catalog updated.");
-    return;
-  }
-  if (type === "super-admin-auth") {
-    const inputEmail = f.email ? f.email.trim() : "";
-    if (isSuperAdminUser(inputEmail) || f.pin === "8888") {
-      isSuperAdminUnlocked = true;
-      if (inputEmail && !state.user) {
-        state.user = { name: "Super Admin", email: inputEmail, phone: "9999999999" };
-        persist();
-      }
-      toast("Super Admin unlocked successfully.");
-      render();
-    } else {
-      if (inputEmail) {
-        toast(`'${inputEmail}' is not a Super Admin account. Redirecting to Customer Portal.`);
-        location.hash = "customer-admin";
-        render();
-      } else {
-        toast("Invalid Super Admin PIN or email.");
-      }
-    }
-    return;
-  }
-  if (type === "address-save") {
-    if (!state.user) {
-      state.user = {
-        name: f.name.trim(),
-        phone: f.phone.trim(),
-        email: "customer@example.com",
-        city: f.city,
-        addresses: [],
-      };
-    }
-    if (!state.user.addresses) state.user.addresses = [];
-
-    const isDefault = form.elements.isDefault?.checked;
-    const addrId = f.id || `addr_${Date.now()}`;
-    const newAddr = {
-      id: addrId,
-      tag: f.tag,
-      name: f.name.trim(),
-      phone: f.phone.trim(),
-      city: f.city,
-      line: f.line.trim(),
-      pincode: f.pincode.trim(),
-      isDefault: isDefault || !state.user.addresses.length,
-    };
-
-    if (newAddr.isDefault) {
-      state.user.addresses.forEach((a) => (a.isDefault = false));
-      state.user.address = newAddr.line;
-      state.user.city = newAddr.city;
-      state.city = newAddr.city;
-    }
-
-    const idx = state.user.addresses.findIndex((a) => a.id === addrId);
-    if (idx >= 0) {
-      state.user.addresses[idx] = newAddr;
-    } else {
-      state.user.addresses.push(newAddr);
-    }
-
-    persist();
-    firebaseService.saveUser(state.user);
-    closeModal();
-    render();
-    toast(`Address '${newAddr.tag}' saved successfully.`);
-    return;
-  }
-  if (type === "customer-profile") {
-    state.user = {
-      ...(state.user || {}),
-      name: f.name.trim(),
-      phone: f.phone.trim(),
-      email: f.email ? f.email.trim() : "",
-      city: f.city,
-      address: f.address ? f.address.trim() : "",
-    };
-    state.city = f.city;
-    persist();
-    firebaseService.saveUser(state.user);
-    toast("Customer profile saved successfully.");
-    render();
-    return;
-  }
-  if (type === "review") {
-    let l = state.leads.find((l) => l.id === modalState.id);
-    l.review = { rating: Number(f.rating), text: f.text };
-    persist();
-    closeModal();
-    render();
-    toast("Thank you. Your feedback helps things grow.");
-    return;
   }
 });
 document.addEventListener("keydown", (event) => {
@@ -2263,21 +1930,425 @@ function showIntro() {
     window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 3100,
   );
 }
-window.addEventListener("storage", (event) => {
-  if (event.key === "kaushik-preview-v1") {
-    try {
-      const fresh = JSON.parse(event.newValue);
-      if (fresh?.version === 1) {
-        state = fresh;
-        render();
-      }
-    } catch {}
-  }
+installLiveController({
+  state: () => state,
+  modal: () => modalState,
+  refresh: refreshState,
+  refreshAccount,
+  passwordForm,
+  refundConfirmation,
+  showAssign,
+  changeServicePackages,
+  searchAdminUsers,
+  render,
+  toast,
+  closeModal,
+  openModal,
+  account,
+  authForm,
+  otpForm,
+  showBooking,
+  showCart,
+  showNotifications,
+  categoryForm,
+  loadMore,
+  setOrderTab: (value) => {
+    orderTab = value;
+  },
 });
-navigate();
-let welcomed = false;
 try {
-  welcomed = !!sessionStorage.getItem("kaushik-welcomed");
-} catch {}
-if (welcomed) endIntro();
-else showIntro();
+  await refreshState();
+} catch (error) {
+  backendError = error.message;
+}
+navigate();
+endIntro();
+
+function accessPanel(title, allowLogin = true) {
+  return `<main class="container" style="max-width:650px;padding-top:65px;padding-bottom:65px"><div class="panel"><div class="eyebrow">YOUR KAUSHIK NURSERY ACCOUNT</div><h1 style="font-size:34px">${esc(title)}</h1><p>${allowLogin ? "Sign in to manage your orders, garden bookings and account details." : "Your account does not have access to this workspace."}</p>${allowLogin ? '<button class="btn btn-primary" data-action="account">Sign in</button>' : '<a href="#home" class="btn btn-outline">Back to the nursery</a>'}</div></main>`;
+}
+function authForm(kind = "login", resetToken = "") {
+  modalState = {
+    title: kind === "register" ? "Create your account" : "Your account",
+  };
+  const fields =
+    kind === "otp"
+      ? `<label class="field"><span>Mobile number</span><input type="tel" name="phone" pattern="[0-9]{10}" autocomplete="tel" required></label>`
+      : kind === "forgot"
+        ? `<label class="field"><span>Email address</span><input type="email" name="email" autocomplete="email" required></label>`
+        : kind === "reset"
+          ? `<input type="hidden" name="token" value="${esc(resetToken)}"><label class="field"><span>New password</span><input type="password" name="password" minlength="12" maxlength="128" autocomplete="new-password" required></label>`
+          : `<div class="form-grid">${kind === "register" ? '<label class="field full"><span>Your name</span><input name="name" required maxlength="100" autocomplete="name"></label>' : ""}<label class="field full"><span>Email address</span><input type="email" name="email" required autocomplete="email"></label><label class="field full"><span>Password</span><input type="password" name="password" minlength="${kind === "register" ? "12" : "1"}" maxlength="128" autocomplete="${kind === "register" ? "new-password" : "current-password"}" required></label></div>`;
+  const form = {
+    otp: "auth-otp-request",
+    login: "auth-login",
+    register: "auth-register",
+    forgot: "auth-forgot",
+    reset: "auth-reset",
+  }[kind];
+  openModal(
+    `<div class="eyebrow">WELCOME TO A GREENER EVERYDAY</div><h2>${{ otp: "Sign in with your mobile.", login: "Sign in to your green space.", register: "Let’s grow together.", forgot: "Reset your password.", reset: "Choose a new password." }[kind]}</h2><p class="modal-intro">${kind === "register" || kind === "reset" ? "Use a unique password with at least 12 characters." : "Your orders, garden bookings and nursery favourites, all in one place."}</p><form data-form="${form}">${fields}<div class="modal-footer"><button type="button" class="text-link" data-action="${kind === "login" ? "auth-register" : "auth-login"}">${kind === "login" ? "Create an account" : "Back to sign in"}</button><button class="btn btn-primary" type="submit">${{ otp: "Send verification code", login: "Sign in", register: "Create account", forgot: "Send reset email", reset: "Save new password" }[kind]} ${icon("arrow")}</button></div></form>${kind === "login" ? '<button class="text-link" data-action="forgot-password" style="margin-top:16px">Forgot password?</button>' : ""}${kind === "login" && state.smsEnabled ? '<button class="text-link" data-action="auth-otp" style="margin:16px">Use mobile verification</button>' : ""}`,
+  );
+}
+function otpForm(challengeId) {
+  openModal(
+    `<div class="eyebrow">VERIFY YOUR MOBILE</div><h2>Check your messages.</h2><form data-form="auth-otp-verify"><input type="hidden" name="challengeId" value="${esc(challengeId)}"><label class="field"><span>Six-digit verification code</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required></label><div class="modal-footer"><button class="btn btn-primary" type="submit">Verify & sign in</button></div></form>`,
+  );
+}
+function showNotifications() {
+  modalState = { title: "Your notifications" };
+  openModal(
+    `<div class="eyebrow">FROM YOUR NURSERY</div><h2>A little update.</h2>${state.notifications.length ? state.notifications.map((n) => `<div class="notification-item"><h3>${esc(n.title)}</h3><p>${esc(n.message)}</p>${!n.read_at ? `<button class="text-link" data-action="notification-read" data-id="${n.seq}">Mark as read</button>` : ""}</div>`).join("") : "<p>No notifications yet.</p>"}${state.cursors.notifications ? '<button class="btn btn-outline" data-action="load-more" data-id="notifications">Load earlier notifications</button>' : ""}`,
+  );
+}
+function categoryForm(kind) {
+  modalState = { title: "Add category" };
+  openModal(
+    `<div class="eyebrow">NURSERY CATEGORIES</div><h2>Add a ${kind === "product" ? "product" : "service"} category.</h2><form data-form="${kind === "product" ? "category-create" : "service-category-create"}"><label class="field"><span>Category name</span><input name="name" maxlength="100" required></label><div class="modal-footer"><button type="submit" class="btn btn-primary">Save category</button></div></form>`,
+  );
+}
+function mergeRecords(first = [], second = []) {
+  return [
+    ...new Map(
+      [...first, ...second].map((item) => [item.id || item.seq, item]),
+    ).values(),
+  ];
+}
+async function refreshAccount() {
+  const account = await api.get("/account");
+  state.user = account.user;
+  state.cart = account.cart;
+  state.favorites = account.favorites;
+  state.products = mergeRecords(state.products, account.cartProducts);
+  const wishlist = await api.get("/wishlist/products?limit=25&page=1");
+  state.wishlistProducts = wishlist.items;
+  state.wishlistMore = wishlist.hasMore;
+  state.wishlistPage = 1;
+  catalogSignature = "";
+  persist();
+}
+async function refreshState() {
+  const previousUser = state.user,
+    boot = await api.get("/bootstrap");
+  api.setSession(boot);
+  const next = {
+    ...state,
+    products: boot.products,
+    services: boot.services,
+    liveServiceIds: boot.services.map((s) => s.id),
+    user: boot.user,
+    paymentMode: boot.paymentMode,
+    smsEnabled: boot.smsEnabled,
+    business: boot.business,
+    categories: boot.categories.map((c) => c.name),
+    serviceCategories: boot.serviceCategories.map((c) => c.name),
+    orders: [],
+    myOrders: [],
+    myBookings: [],
+    leads: [],
+    partners: [],
+    users: [],
+    payments: [],
+    broadcasts: [],
+    notifications: [],
+    wishlistProducts: [],
+    cursors: {},
+    stats: {},
+    customerStats: {},
+    adminJobs: [],
+    catalogResults: null,
+  };
+  if (!next.user) {
+    if (previousUser) {
+      next.cart = [];
+      next.favorites = [];
+    }
+    Object.assign(state, next);
+    catalogSignature = "";
+    backendError = "";
+    persist();
+    return;
+  }
+  try {
+    const [account, orders, bookings, notifications, overview, wishlist] =
+      await Promise.all([
+        api.get("/account"),
+        api.get("/orders?limit=25"),
+        api.get("/bookings?limit=25"),
+        api.get("/notifications?limit=25"),
+        api.get("/account/overview"),
+        api.get("/wishlist/products?limit=25&page=1"),
+      ]);
+    Object.assign(next, account, {
+      products: mergeRecords(boot.products, account.cartProducts),
+      myOrders: orders.items,
+      myBookings: bookings.items,
+      orders: orders.items,
+      leads: bookings.items,
+      notifications: notifications.items,
+      unreadCount: notifications.unreadCount,
+      customerStats: overview,
+      wishlistProducts: wishlist.items,
+      wishlistMore: wishlist.hasMore,
+      wishlistPage: 1,
+    });
+    Object.assign(next.cursors, {
+      myOrders: orders.nextCursor,
+      myBookings: bookings.nextCursor,
+      notifications: notifications.nextCursor,
+    });
+    if (next.user.role === "partner") {
+      const [profile, leads, jobs] = await Promise.all([
+        api.get("/partner/profile"),
+        api.get("/partner/leads?limit=25"),
+        api.get("/partner/jobs?limit=25"),
+      ]);
+      next.partners = profile.partner ? [profile.partner] : [];
+      next.leads = mergeRecords(leads.items, jobs.items);
+      next.cursors.leads = leads.nextCursor;
+      next.cursors.jobs = jobs.nextCursor;
+    }
+    if (next.user.role === "admin") {
+      const [
+        users,
+        partners,
+        allOrders,
+        allBookings,
+        products,
+        payments,
+        settings,
+        stats,
+        services,
+        broadcasts,
+        assets,
+        categories,
+        serviceCategories,
+        jobs,
+      ] = await Promise.all([
+        api.get("/admin/users?limit=25"),
+        api.get("/admin/partners?limit=25"),
+        api.get("/admin/orders?limit=25"),
+        api.get("/admin/bookings?limit=25"),
+        api.get("/admin/products?limit=100"),
+        api.get("/admin/payments?limit=25"),
+        api.get("/admin/settings"),
+        api.get("/admin/overview"),
+        api.get("/admin/services"),
+        api.get("/admin/notifications"),
+        api.get("/admin/assets"),
+        api.get("/admin/categories"),
+        api.get("/admin/service-categories"),
+        api.get("/admin/jobs?limit=25"),
+      ]);
+      Object.assign(next, {
+        users: users.items,
+        partners: partners.items,
+        orders: allOrders.items,
+        leads: allBookings.items,
+        products: products.items,
+        payments: payments.items,
+        maxPartners: settings.maxPartners,
+        rotation: settings.rotation,
+        stats,
+        services: services.items,
+        broadcasts: broadcasts.items,
+        assets: assets.items,
+        adminCategories: categories.items,
+        adminServiceCategories: serviceCategories.items,
+        adminJobs: jobs.items,
+        adminUserQuery: "",
+      });
+      Object.assign(next.cursors, {
+        users: users.nextCursor,
+        partners: partners.nextCursor,
+        orders: allOrders.nextCursor,
+        leads: allBookings.nextCursor,
+        products: products.nextCursor,
+        payments: payments.nextCursor,
+      });
+    }
+    Object.assign(state, next);
+    catalogSignature = "";
+    backendError = "";
+    persist();
+  } catch (error) {
+    if (error.status === 401) {
+      state.user = null;
+      state.myOrders = [];
+      state.myBookings = [];
+      state.orders = [];
+      state.leads = [];
+      api.setSession({});
+    }
+    throw error;
+  }
+}
+async function fetchCatalog(append = false) {
+  if (route !== "shop") return;
+  const signature = JSON.stringify({
+    category: shopCategory,
+    q: shopQuery,
+    sort: shopSort,
+    favoritesOnly,
+    favorites: state.favorites,
+  });
+  if (!append && signature === catalogSignature) return;
+  catalogSignature = signature;
+  const page = append ? (state.catalogPage || 1) + 1 : 1;
+  if (favoritesOnly && !state.user) {
+    state.catalogResults = state.products.filter((p) =>
+      state.favorites.includes(p.id),
+    );
+    state.catalogMore = false;
+    updateCatalog();
+    return;
+  }
+  try {
+    const query = new URLSearchParams({
+      category: shopCategory === "All plants" ? "" : shopCategory,
+      q: shopQuery,
+      sort: shopSort,
+      limit: "25",
+      page: String(page),
+    });
+    const result = await api.get(
+      favoritesOnly ? `/wishlist/products?${query}` : `/products?${query}`,
+    );
+    if (signature !== catalogSignature || route !== "shop") return;
+    state.catalogResults = append
+      ? [...state.catalogResults, ...result.items]
+      : result.items;
+    state.catalogPage = page;
+    state.catalogMore = result.hasMore;
+    updateCatalog();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+function updateCatalog() {
+  const results = $("#catalog-results");
+  if (results) results.innerHTML = filteredProducts();
+  const count = $("#catalog-count");
+  if (count)
+    count.textContent = `${catalogProducts().length} products shown${state.catalogMore ? " · more available" : ""}`;
+  addPagination();
+}
+async function loadMore(kind) {
+  if (kind === "catalog") return fetchCatalog(true);
+  if (kind === "wishlist") {
+    const result = await api.get(
+      `/wishlist/products?limit=25&page=${(state.wishlistPage || 1) + 1}`,
+    );
+    state.wishlistProducts = mergeRecords(state.wishlistProducts, result.items);
+    state.wishlistPage++;
+    state.wishlistMore = result.hasMore;
+    return;
+  }
+  const admin = state.user?.role === "admin",
+    partner = state.user?.role === "partner";
+  const paths = {
+    users: "/admin/users",
+    partners: "/admin/partners",
+    products: "/admin/products",
+    payments: "/admin/payments",
+    orders: "/admin/orders",
+    myOrders: "/orders",
+    myBookings: "/bookings",
+    notifications: "/notifications",
+    bookings: "/bookings",
+    leads: admin ? "/admin/bookings" : "/partner/leads",
+    jobs: "/partner/jobs",
+  };
+  if (!paths[kind] || !state.cursors[kind]) return;
+  const result = await api.get(
+    `${paths[kind]}?limit=25&cursor=${encodeURIComponent(state.cursors[kind])}${kind === "users" && state.adminUserQuery ? "&q=" + encodeURIComponent(state.adminUserQuery) : ""}`,
+  );
+  const key = ["bookings", "leads", "jobs"].includes(kind) ? "leads" : kind;
+  state[key] = [
+    ...new Map(
+      [...state[key], ...result.items].map((item) => [
+        item.id || item.seq,
+        item,
+      ]),
+    ).values(),
+  ];
+  state.cursors[kind] = result.nextCursor;
+}
+function addPagination() {
+  document.querySelectorAll(".pagination-footer").forEach((el) => el.remove());
+  const main = $("main");
+  if (!main) return;
+  let kinds = [];
+  if (route === "shop" && state.catalogMore) kinds = ["catalog"];
+  if (route === "orders")
+    kinds = [orderTab === "products" ? "myOrders" : "myBookings"];
+  if (route === "customer-admin")
+    kinds =
+      workspaceTab === "orders"
+        ? ["myOrders"]
+        : workspaceTab === "bookings"
+          ? ["myBookings"]
+          : workspaceTab === "saved"
+            ? ["wishlist"]
+            : [];
+  if (["admin", "super-admin"].includes(route))
+    kinds =
+      {
+        users: ["users"],
+        partners: ["partners"],
+        products: ["products", "orders"],
+        leads: ["leads"],
+        payments: ["payments"],
+      }[workspaceTab] || [];
+  if (route === "partner")
+    kinds =
+      workspaceTab === "leads"
+        ? ["leads"]
+        : workspaceTab === "jobs"
+          ? ["jobs"]
+          : [];
+  const buttons = kinds
+    .filter((kind) =>
+      kind === "catalog"
+        ? state.catalogMore
+        : kind === "wishlist"
+          ? state.wishlistMore
+          : state.cursors[kind],
+    )
+    .map(
+      (kind) =>
+        `<button class="btn btn-outline" data-action="load-more" data-id="${kind}">Load more ${{ catalog: "products", myOrders: "orders", myBookings: "bookings", wishlist: "saved plants" }[kind] || kind}</button>`,
+    )
+    .join("");
+  if (buttons)
+    main.insertAdjacentHTML(
+      "beforeend",
+      `<div class="pagination-footer">${buttons}</div>`,
+    );
+}
+
+function fileLinks(uploads = []) {
+  return uploads
+    .map(
+      (u) =>
+        `<a href="/api/uploads/${encodeURIComponent(u.id)}/content" target="_blank" rel="noopener">${esc(u.original_name)}</a>`,
+    )
+    .join(" · ");
+}
+
+function categoryControls(kind) {
+  const list =
+    kind === "product" ? state.adminCategories : state.adminServiceCategories;
+  return `<div class="panel"><h2>${kind === "product" ? "Product" : "Service"} category visibility</h2>${table(
+    ["Category", "Status", "Manage"],
+    (list || []).map(
+      (c) =>
+        `<tr><td>${esc(c.name)}</td><td>${c.active ? "Visible" : "Hidden"}</td><td><button class="btn btn-outline btn-small" data-action="category-toggle" data-kind="${kind}" data-id="${esc(kind === "product" ? c.id : c.name)}" data-active="${!Boolean(c.active)}">${c.active ? "Hide" : "Show"} ${esc(c.name)}</button></td></tr>`,
+    ),
+  )}</div>`;
+}
+
+function contactDetails() {
+  const b = state.business || {};
+  return `<h3>${esc(b.name || "Kaushik Nursery")}</h3>${b.email ? `<p>Email: <a href="mailto:${esc(b.email)}">${esc(b.email)}</a></p>` : ""}${b.phone ? `<p>Phone: <a href="tel:${esc(b.phone)}">${esc(b.phone)}</a></p>` : ""}${b.address ? `<p>${esc(b.address).replace(/\n/g, "<br>")}</p>` : ""}${!b.email && !b.phone && !b.address ? "<p>Verified nursery support details have not yet been published.</p>" : ""}`;
+}

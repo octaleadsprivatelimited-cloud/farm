@@ -23,3 +23,9 @@ Images are downloaded and self-hosted in `public/assets/`, and used as illustrat
 | `leaf-texture.jpg`                                             | https://images.unsplash.com/photo-1497250681960-ef046c08a56e |
 
 Manrope, DM Sans and Playfair Display fonts are self-hosted from Google Fonts. The logo, interface icons and animated plant are native SVG/CSS assets, created as code for this frontend.
+
+## Storefront refresh
+
+- **Visual reference:** https://nurserylive.com/ — search-led header, category navigation, visual collections and product presentation. The implementation retains Kaushik Nursery branding and the proposal's services-first structure.
+- **`terracotta-pots.jpg`:** https://images.unsplash.com/photo-1547816818-46732a278997 — photograph of terracotta plant pots, self-hosted as illustrative category and product imagery. Source page: https://unsplash.com/photos/MyuuJ0s0OPQ.
+- All other photography and self-hosted fonts are retained from the cloned repository. No NurseryLive logos or brand assets are used.

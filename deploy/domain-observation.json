@@ -1,0 +1,29 @@
+{
+  "domain": "kaushiknursery.in",
+  "observedAt": "2026-10-21T16:52:10.548Z",
+  "note": "Partial public DNS observation, not a complete zone backup. No DNS records have been modified.",
+  "records": {
+    "kaushiknursery.in:A": [
+      "216.198.79.1"
+    ],
+    "kaushiknursery.in:NS": [
+      "aster.dns-parking.com",
+      "helios.dns-parking.com"
+    ],
+    "kaushiknursery.in:MX": [
+      {
+        "exchange": "mx1.hostinger.com",
+        "priority": 5,
+        "type": "MX"
+      },
+      {
+        "exchange": "mx2.hostinger.com",
+        "priority": 10,
+        "type": "MX"
+      }
+    ],
+    "www.kaushiknursery.in:CNAME": [
+      "a2d1082e9af3aa21.vercel-dns-017.com"
+    ]
+  }
+}

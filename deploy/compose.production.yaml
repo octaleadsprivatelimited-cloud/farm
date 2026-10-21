@@ -1,0 +1,49 @@
+# Run on each Hostinger API VPS. MySQL and Redis endpoints are shared private services.
+# This file provisions neither a production database nor high-availability Redis.
+name: kaushik-api
+services:
+  api:
+    image: ${APP_IMAGE:?Set an immutable registry image or digest}
+    env_file: ${PRODUCTION_ENV_FILE:-./production.env}
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      RUN_WORKER: "false"
+      MIGRATE_ON_START: "false"
+      SEED_CATALOG_ON_START: "false"
+    ports: ["${API_BIND_ADDRESS:-127.0.0.1}:3000:3000"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s
+    mem_limit: 1g
+    cpus: 2
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+  worker:
+    image: ${APP_IMAGE:?Set APP_IMAGE}
+    env_file: ${PRODUCTION_ENV_FILE:-./production.env}
+    environment:
+      NODE_ENV: production
+      RUN_WORKER: "false"
+      MIGRATE_ON_START: "false"
+      SEED_CATALOG_ON_START: "false"
+    command: ["node", "server/worker-entry.js"]
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 30s
+    mem_limit: 512m
+    cpus: 1
+    healthcheck: {disable: true}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}

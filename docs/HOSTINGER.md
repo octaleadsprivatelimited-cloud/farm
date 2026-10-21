@@ -1,0 +1,33 @@
+# Hostinger deployment
+
+The user supplied **kaushiknursery.in** on 2026-10-21. Its current HTTPS page redirects to **https://www.kaushiknursery.in/** and is served by Vercel. The public frontend is reachable; `/api/config` and `/health/ready` currently return 404, so the new Node backend is not live on that domain.
+
+The connected Hostinger account still lists only `sjcjournal.com` and no VPS instances. DNS access for `kaushiknursery.in` was denied with `Customer does not own kaushiknursery.in domain`. This establishes an account-access mismatch, not a conclusion about who legally owns the domain. The user will manage DNS separately, so connector DNS access is not a blocker. Once infrastructure has a verified public edge endpoint, provide the web records to the user for cutover. No hosting, DNS, domain ownership or existing website content has been changed.
+
+Domain-specific preparation is in `deploy/hostinger.json`, `deploy/production.env.example` and `deploy/Caddyfile.production`. These retain the existing public `www` canonical URL and redirect the apex to it. `NURSERY_API_UPSTREAMS` must contain actual provisioned private API addresses; none have been selected. `deploy/domain-observation.json` records a partial public DNS observation and is **not** a complete DNS backup. Preserve mail records and unrelated services during any later DNS cutover.
+
+## Recommended route for the stated requirement
+
+For **strict MySQL 8.4 and 100,000 simultaneous users**, benchmark a Hostinger VPS fleet with separate MySQL/Redis/object storage and load balancers/CDN. Infrastructure sizing, high availability, networks and budget must be agreed and measured. A single Node hosting plan is not a verified solution for this target.
+
+Hostinger's managed shared/cloud databases use MariaDB, according to its [database documentation](https://www.hostinger.com/support/1583226-which-database-management-system-is-used-at-hostinger/). This repository is tested on MySQL 8.4 and makes no MariaDB compatibility claim. Native hosting can be considered for a smaller staged deployment with compatible external services, subject to the plan's runtime/network/worker limits. See [Node deployment](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) and [database connectivity](https://www.hostinger.com/support/connecting-a-hostinger-mysql-database-to-a-node-js-application/).
+
+## VPS release procedure
+
+1. Select approved VPS/database/Redis/storage resources; the user will apply DNS changes separately. Inspect existing resources, firewall rules and backups before any mutation. No example IP or domain below is a deployment target.
+2. Build and publish an immutable image, for the target VPS architecture: `docker build -t REGISTRY/kaushik:RELEASE .`. Push it using your registry credentials and record its digest. Never use local development `.env` values in production.
+3. Create a restricted environment file on each server from `.env.example`: production HTTPS `APP_ORIGIN`, external private MySQL credentials, Redis TLS URL where supported, long random session/metrics secrets, private S3, Razorpay/SMTP/SMS/FCM as required. Initially keep payments/messaging disabled until sandbox verification. Use the same session secret, Redis namespace and services across replicas.
+4. Restrict SSH to operator sources, MySQL/Redis to the API/worker network, and API port 3000 to the load balancer. Expose only edge HTTPS/HTTP publicly. If the load balancer is remote, set `API_BIND_ADDRESS` to the API host's private interface and `TRUST_PROXY` to exact trusted proxy IPs/CIDRs. Default Compose binding is loopback. Verify private networking exists; otherwise use an authenticated encrypted private tunnel rather than opening database ports publicly.
+5. Back up MySQL, then run migrations once using the release image: `docker run --rm --env-file /secure/production.env REGISTRY/kaushik:RELEASE node scripts/database.mjs migrate`. Initial starter catalog seeding is a deliberate one-time action; replace prices/content with business-approved data. Create the first administrator through the CLI, using stdin/TTY for its password.
+6. Run `deploy/compose.production.yaml` with `APP_IMAGE` pinned and `PRODUCTION_ENV_FILE` pointing to that restricted file. Start API replicas and independent workers. Optional MySQL CA and FCM credential files need read-only secret mounts at the exact paths in the environment; supply these via a Compose override or your secret manager. They are deliberately absent from the source package.
+7. Use `deploy/Caddyfile.production` with the verified `NURSERY_API_UPSTREAMS`, validate it, obtain TLS, then configure only the intended web DNS records to the edge. Confirm readiness and user isolation through the real HTTPS origin. Verify `Set-Cookie` is Secure/HttpOnly and wrong origins fail. Use rolling drain/restart with at least one healthy API remaining.
+8. Configure Razorpay `POST https://YOUR_DOMAIN/api/webhooks/razorpay` with the same webhook secret and payment.captured/refund events. Verify sandbox capture, delayed capture, replay and refunds. Configure private bucket CORS for the exact frontend origin, PUT plus content-type; keep public reads disabled.
+9. Run the architecture acceptance procedure before advertising the 100,000-user capacity. Record DNS, deployment IDs, image digest, migration versions and rollback plan.
+
+## Native Hostinger Node deployment alternative
+
+`node scripts/package-hostinger.mjs` creates `output/deploy/source/`, an allowlisted source directory with secrets and local data excluded. The native Hostinger tool auto-packs that directory itself and does not honor `.gitignore`; never pass the whole working checkout containing `.env`, `tmp`, uploads or credentials.
+
+Use domain `kaushiknursery.in`, canonical origin `https://www.kaushiknursery.in`, type `nodejs`, Node 24, app type `fastify`, package manager npm, root `.`, build script `build`, entry `server/index.js`. `deploy/hostinger.json` is an operator reference, not an hPanel-consumed manifest. The app respects `PORT`. `npm run build` validates and copies static assets; the Node server must still run. Do not publish only `dist/` as the backend.
+
+Provision database access, environment variables and a supported durable worker arrangement first. Replacing environment variables through the connector is a full replacement and restart: preserve known existing values, never submit masked values as secrets. Poll deployment/build status to terminal success and test readiness over HTTPS. Hostinger confirmation gates apply before modifying external resources or replacing site contents.

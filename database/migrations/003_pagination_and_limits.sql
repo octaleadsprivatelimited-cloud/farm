@@ -1,0 +1,4 @@
+ALTER TABLE payments ADD COLUMN seq BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE;
+CREATE TABLE auth_rate_limits (
+ bucket_hash CHAR(64) PRIMARY KEY,attempts INT UNSIGNED NOT NULL DEFAULT 0,expires_at DATETIME(3) NOT NULL,INDEX ix_auth_limit_expiry(expires_at)
+) ENGINE=InnoDB;

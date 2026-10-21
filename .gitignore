@@ -11,3 +11,9 @@ tmp/
 !.env.example
 .vercel
 .env*
+
+var/
+coverage/
+load-tests/results/
+backups/
+!.env.example

@@ -1,0 +1,36 @@
+# Edge/load-balancer example. Replace domain and upstreams with verified resources.
+# The API VPS firewalls must allow inbound port 3000 only from this load balancer.
+# API containers must publish port 3000 to their private interface for a remote edge.
+nursery.example.com {
+    encode zstd gzip
+    request_body {
+        max_size 1MB
+    }
+    @public path /assets/* /styles.css /storefront.css
+    header @public Cache-Control "public, max-age=86400"
+    @api path /api/*
+    header @api Cache-Control "no-store"
+    reverse_proxy 10.10.0.11:3000 10.10.0.12:3000 {
+        lb_policy least_conn
+        health_uri /health/ready
+        health_interval 10s
+        health_timeout 3s
+        fail_duration 15s
+        lb_try_duration 5s
+        # Never retry non-idempotent writes at the proxy.
+        lb_retry_match {
+            method GET HEAD OPTIONS
+        }
+        transport http {
+            dial_timeout 3s
+            response_header_timeout 15s
+            keepalive 30s
+        }
+    }
+    log {
+        output file /var/log/caddy/nursery.log {
+            roll_size 20MiB
+            roll_keep 5
+        }
+    }
+}

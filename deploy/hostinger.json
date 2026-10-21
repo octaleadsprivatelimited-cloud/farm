@@ -1,0 +1,17 @@
+{
+  "framework": "node",
+  "nodeVersion": "24",
+  "packageManager": "npm",
+  "installCommand": "npm ci --omit=dev",
+  "buildCommand": "npm run build",
+  "startCommand": "npm start",
+  "entryFile": "server/index.js",
+  "healthCheckPath": "/health/ready",
+  "deploymentStatus": "awaiting_production_infrastructure",
+  "note": "Operator reference, not an automatically consumed hPanel manifest. Use the current Hostinger API schema when deploying.",
+  "domain": "kaushiknursery.in",
+  "canonicalOrigin": "https://www.kaushiknursery.in",
+  "currentFrontendHost": "Vercel",
+  "capacityStatus": "100000_simultaneous_users_not_yet_validated",
+  "dnsManagement": "user"
+}

@@ -1,0 +1,47 @@
+name: Backend and storefront
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: kaushik_test
+          MYSQL_ROOT_PASSWORD: ci-only-database-password
+          MYSQL_USER: nursery_ci
+          MYSQL_PASSWORD: ci-only-database-password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-database-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-retries=12
+    env:
+      NODE_ENV: test
+      APP_ORIGIN: http://127.0.0.1:4173
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: kaushik_test
+      DB_USER: nursery_ci
+      DB_PASSWORD: ci-only-database-password
+      SESSION_SECRET: ci-only-session-secret-must-have-at-least-forty-eight-characters
+      REDIS_URL: redis://127.0.0.1:6379/0
+      PAYMENT_MODE: test
+      STORAGE_DRIVER: local
+      LOG_LEVEL: silent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high

@@ -1,0 +1,31 @@
+name: kaushik-nursery
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-kaushik}
+      MYSQL_USER: ${DB_USER:-kaushik}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    command: ["--max-connections=200", "--innodb-buffer-pool-size=512M", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports: ["127.0.0.1:3307:3306"]
+    volumes: ["mysql_data:/var/lib/mysql", "./database/docker-init.sql:/docker-entrypoint-initdb.d/01-test.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 2g
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6381:6379"]
+    volumes: ["redis_data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  mysql_data:
+  redis_data:

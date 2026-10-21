@@ -16,7 +16,7 @@ export const initialProducts = [
   {
     id: "p2",
     name: "Zebra Haworthia",
-    category: "Indoor plants",
+    category: "Succulents",
     price: 299,
     oldPrice: 399,
     image: "plant-succulent.jpg",
@@ -61,7 +61,7 @@ export const initialProducts = [
     category: "Pots & planters",
     price: 349,
     oldPrice: 449,
-    image: "garden-hero.png",
+    image: "terracotta-pots.jpg",
     badge: "Earthy by nature",
     care: "Breathable natural clay",
     water: "Includes drainage hole",
@@ -86,7 +86,7 @@ export const initialProducts = [
   {
     id: "p7",
     name: "Window Succulent Kit",
-    category: "Garden essentials",
+    category: "Succulents",
     price: 599,
     oldPrice: 749,
     image: "plant-succulent.jpg",
