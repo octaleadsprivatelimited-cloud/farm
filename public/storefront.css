@@ -56,7 +56,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .main-nav .icon { width: 13px; height: 13px; }
 .main-nav .nav-services { color: #39734b; font-weight: 700; }
 .main-nav .nav-services .icon { width: 17px; height: 17px; }
-.main-nav .nav-partner { border-left: 1px solid var(--line); padding-left: 23px; color: #68705f; font-size: 10px; }
 .mobile-menu { display: none !important; }
 .welcome-section { padding-top: 27px; }
 .garden-welcome { position: relative; display: grid; grid-template-columns: 48% 52%; background: #eef1e5; border-radius: 7px; overflow: hidden; min-height: 465px; }
@@ -214,7 +213,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .location-btn { margin-right: 0; }
   .main-nav { gap: 19px; }
   .main-nav > button, .main-nav a { font-size: 10px; }
-  .main-nav .nav-partner { display: none; }
   .welcome-copy { padding-left: 30px; }
   .welcome-actions { gap: 12px; }
   .welcome-actions .btn { padding: 13px; }
@@ -308,7 +306,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .main-nav > a, .main-nav > button { font-size: 10px; padding: 13px 0; flex-shrink: 0; }
   .main-nav.open { flex-wrap: wrap; overflow: visible; gap: 2px 24px; padding-top: 4px; padding-bottom: 4px; }
   .main-nav.open > a, .main-nav.open > button { padding-block: 12px; }
-  .main-nav .nav-partner { display: none; }
   .welcome-section { padding-top: 17px; }
   .garden-welcome { display: flex; flex-direction: column; min-height: 0; border-radius: 5px; }
   .welcome-copy { padding: 29px 24px 25px; }
@@ -546,7 +543,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: #64a
 .store-chrome .navigation-border { background: #073c28; border-color: #ffffff12; }
 .store-chrome .main-nav a, .store-chrome .main-nav > button { color: #e2f1d3; font-size: 12px; font-weight: 600; }
 .store-chrome .main-nav a:hover, .store-chrome .main-nav > button:hover, .store-chrome .main-nav a.active, .store-chrome .main-nav > button.active { color: #d7fa80; }
-.store-chrome .main-nav .nav-partner { color: #d7fa80; border-color: #ffffff24; }
 .store-chrome .mobile-menu[aria-expanded="true"] { background: #d2f36b; color: #10452a; }
 .garden-welcome { background: #0b4c31; border-radius: 12px; box-shadow: 0 12px 30px #17482b0b; }
 .welcome-copy { color: #f6fbe9; padding-top: 48px; }
