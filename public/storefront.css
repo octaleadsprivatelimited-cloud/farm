@@ -324,7 +324,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .nursery-benefits strong { font-size: 9px; }
   .nursery-benefits small { font-size: 8px; max-width: 120px; line-height: 1.6; margin-top: 3px; }
   .nursery-benefits > div { border: 0; }
-  .collection-section { padding-top: 31px; padding-bottom: 22px; }
+  .collection-section { padding-bottom: 22px; }
   .section-kicker { font-size: 7px; letter-spacing: .11em; }
   .compact-title { margin-bottom: 23px; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
   .compact-title h2 { font-size: 25px; margin-top: 8px; max-width: 330px; }
@@ -630,6 +630,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: #64a
   .nursery-benefits,
   .hero-controls .hero-arrow,
   .hero-controls .hero-pause { display: none; }
+  .collection-section { padding-top: 12px; }
 }
 
 /* Compact commerce header: 80% of the previous vertical dimensions. */
