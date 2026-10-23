@@ -7,6 +7,12 @@ import {
   changeBannerDraft,
   saveBannerDraft,
 } from "./banner-admin.js";
+import {
+  mountScrollMotion,
+  refreshScrollMetrics,
+  scrollPageTo,
+  syncScrollLock,
+} from "./scroll-motion.js";
 import { policies } from "./policies.js";
 import { api } from "./api.js";
 import { installLiveController } from "./live-controller.js";
@@ -74,7 +80,6 @@ const iconPaths = {
   chart: "M4 3v18h17M8 17v-5m5 5V8m5 9V4",
   settings:
     "M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3Z",
-  replay: "M3 10a9 9 0 1 1 2 9M3 3v7h7",
   mail: "M3 5h18v14H3V5Zm0 1 9 7 9-7",
   download: "M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4",
   star: "m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1 3-6",
@@ -149,8 +154,7 @@ let route = "home",
   modalState = {},
   lastFocus = null,
   toastTimer,
-  introTimer,
-  observer,
+  disposePageMotion = () => {},
   disposeStorefront = () => {};
 
 const product = (id) =>
@@ -181,7 +185,7 @@ function header() {
     </div><div class="navigation-border"><nav class="container main-nav" aria-label="Main navigation"><a href="#home" class="${route === "home" ? "active" : ""}">Home</a><a href="#services" class="nav-services ${route === "services" ? "active" : ""}">${icon("garden")} Garden services</a><button data-action="browse-category" data-id="All plants" class="${route === "shop" && shopCategory === "All plants" ? "active" : ""}">All products ${icon("down")}</button>${collections.map((c) => `<button data-action="browse-category" data-id="${esc(c)}" class="${route === "shop" && shopCategory === c ? "active" : ""}">${esc(c)}</button>`).join("")}</nav></div></header><button type="button" class="mobile-nav-scrim" aria-label="Dismiss navigation" hidden></button><nav id="mobile-navigation" class="mobile-nav-panel" aria-label="Mobile navigation" hidden inert><div class="mobile-nav-heading"><span>Explore the nursery</span><button class="icon-btn" data-action="mobile-nav-close" aria-label="Close mobile menu">${icon("close")}</button></div><a class="mobile-nav-item" href="#home">${icon("leaf")} Home ${icon("arrow")}</a><a class="mobile-nav-item" href="#services">${icon("garden")} Garden services ${icon("arrow")}</a><button class="mobile-nav-item" data-action="browse-category" data-id="All plants">${icon("bag")} All products ${icon("arrow")}</button><div class="mobile-nav-categories">${state.categories.map((c) => `<button class="mobile-nav-item" data-action="browse-category" data-id="${esc(c)}">${esc(c)} ${icon("arrow")}</button>`).join("")}</div><div class="mobile-nav-accounts"><a class="mobile-nav-item" href="#customer-admin">${icon("user")} Your account ${icon("arrow")}</a><a class="mobile-nav-item" href="#orders">${icon("truck")} Orders & bookings ${icon("arrow")}</a><button class="mobile-nav-item" data-action="location">${icon("pin")} ${esc(state.city)} · Change city ${icon("arrow")}</button></div></nav></div>`;
 }
 function footer() {
-  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>A plant for every corner.<br>A little care for every garden.</p><button class="footer-support" data-action="support">${icon("leaf")} Let’s help your garden grow ${icon("arrow")}</button></div><div class="footer-col"><h4>Explore the nursery</h4><a href="#services">Garden services</a><button data-action="browse-category" data-id="All plants">Buy our products</button><button data-action="browse-category" data-id="Indoor plants">Indoor plants</button><button data-action="browse-category" data-id="Pots & planters">Pots & planters</button><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Your green space</h4><a href="#orders">Orders & service bookings</a><button data-action="account">Your account</button><a href="#customer-admin">Customer portal</a><a href="#partner">Service partner portal</a><button data-action="app-info">Our Android apps</button></div><div class="footer-col"><h4>Here to help</h4><button data-action="legal" data-id="contact">Contact us</button><button data-action="legal" data-id="shipping">Shipping & delivery</button><button data-action="legal" data-id="refund">Cancellations & returns</button><button data-action="legal" data-id="privacy">Privacy policy</button><button data-action="legal" data-id="terms">Terms & conditions</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery. Good things take root.</span><div><a href="#super-admin">Admin workspace</a><button data-action="replay">${icon("replay")}A moment of green</button></div></div></div></footer>`;
+  return `<footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand">${brand()}<p>A plant for every corner.<br>A little care for every garden.</p><button class="footer-support" data-action="support">${icon("leaf")} Let’s help your garden grow ${icon("arrow")}</button></div><div class="footer-col"><h4>Explore the nursery</h4><a href="#services">Garden services</a><button data-action="browse-category" data-id="All plants">Buy our products</button><button data-action="browse-category" data-id="Indoor plants">Indoor plants</button><button data-action="browse-category" data-id="Pots & planters">Pots & planters</button><button data-action="support">Plant care & support</button></div><div class="footer-col"><h4>Your green space</h4><a href="#orders">Orders & service bookings</a><button data-action="account">Your account</button><a href="#customer-admin">Customer portal</a><a href="#partner">Service partner portal</a><button data-action="app-info">Our Android apps</button></div><div class="footer-col"><h4>Here to help</h4><button data-action="legal" data-id="contact">Contact us</button><button data-action="legal" data-id="shipping">Shipping & delivery</button><button data-action="legal" data-id="refund">Cancellations & returns</button><button data-action="legal" data-id="privacy">Privacy policy</button><button data-action="legal" data-id="terms">Terms & conditions</button></div></div><div class="footer-bottom"><span>© ${new Date().getFullYear()} Kaushik Nursery. Good things take root.</span><div><a href="#super-admin">Admin workspace</a></div></div></div></footer>`;
 }
 function productCard(p) {
   const discount =
@@ -942,7 +946,7 @@ function partnersTable(partners) {
 }
 function render(scroll = false) {
   disposeStorefront();
-  observer?.disconnect();
+  disposePageMotion();
   const isSuperAdminRoute = route === "super-admin" || route === "admin";
   $("#app").innerHTML =
     (isSuperAdminRoute ? "" : header()) +
@@ -959,23 +963,13 @@ function render(scroll = false) {
       }[route] || home
     )() +
     (isSuperAdminRoute ? "" : footer());
-  if (scroll) window.scrollTo({ top: 0, behavior: "instant" });
-  observer = new IntersectionObserver(
-    (entries) =>
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("visible");
-          observer.unobserve(entry.target);
-        }
-      }),
-    { threshold: 0.08 },
-  );
-  document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
+  refreshScrollMetrics(scroll);
   if (route === "shop") {
     fetchCatalog();
   }
   addPagination();
   disposeStorefront = mountStorefrontInteractions();
+  disposePageMotion = mountScrollMotion();
   if (backendError)
     $("#app").insertAdjacentHTML(
       "afterbegin",
@@ -1019,6 +1013,7 @@ function openModal(content, wide = false) {
   $("#modal-root").innerHTML =
     `<div class="modal-overlay" data-action="close-overlay"><section class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(modalState.title || "Kaushik Nursery")}" tabindex="-1"><button class="modal-close" data-action="close" aria-label="Close dialog">${icon("close")}</button>${content}</section></div>`;
   document.body.classList.add("modal-open");
+  syncScrollLock();
   $("#app").inert = true;
   setTimeout(() => $(".modal")?.focus(), 0);
 }
@@ -1026,6 +1021,7 @@ function closeModal() {
   const focus = lastFocus;
   $("#modal-root").innerHTML = "";
   document.body.classList.remove("modal-open");
+  syncScrollLock();
   $("#app").inert = false;
   modalState = {};
   lastFocus = null;
@@ -1141,6 +1137,7 @@ function showCart() {
       </aside>
     </div>`;
   document.body.classList.add("modal-open");
+  syncScrollLock();
   $("#app").inert = true;
   setTimeout(() => $(".cart-drawer")?.focus(), 0);
 }
@@ -1554,8 +1551,8 @@ document.addEventListener("click", (event) => {
     const main = $("main");
     if (main) {
       main.tabIndex = -1;
-      main.focus();
-      main.scrollIntoView({ block: "start" });
+      main.focus({ preventScroll: true });
+      scrollPageTo(main);
     }
     return;
   }
@@ -1571,12 +1568,8 @@ document.addEventListener("click", (event) => {
     const id = el.dataset.scroll;
     if (route !== "home") {
       location.hash = "home";
-      setTimeout(
-        () =>
-          document.getElementById(id)?.scrollIntoView({ behavior: "smooth" }),
-        40,
-      );
-    } else document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+      setTimeout(() => scrollPageTo(document.getElementById(id)), 40);
+    } else scrollPageTo(document.getElementById(id));
     closeMobileNavigation();
     return;
   }
@@ -1615,12 +1608,6 @@ document.addEventListener("click", (event) => {
       location.hash = href;
       break;
     }
-    case "replay":
-      showIntro();
-      break;
-    case "skip-opening":
-      endIntro();
-      break;
     case "cart":
       showCart();
       break;
@@ -1895,7 +1882,6 @@ document.addEventListener("keydown", (event) => {
     closeModal();
     $(".workspace-menu")?.classList.add("hidden");
     closeMobileNavigation(true);
-    if (!$("#opening").classList.contains("hide")) endIntro();
   }
   if (
     (event.key === "Enter" || event.key === " ") &&
@@ -1930,31 +1916,6 @@ document.addEventListener("keydown", (event) => {
     }
   }
 });
-const openingMarkup = $("#opening").innerHTML;
-function endIntro() {
-  clearTimeout(introTimer);
-  $("#opening").classList.add("hide");
-  document.body.classList.remove("intro-playing");
-  $("#app").inert = false;
-  try {
-    sessionStorage.setItem("kaushik-welcomed", "1");
-  } catch {}
-}
-function showIntro() {
-  clearTimeout(introTimer);
-  $(".workspace-menu")?.classList.add("hidden");
-  $(".workspace-btn")?.setAttribute("aria-expanded", "false");
-  const el = $("#opening");
-  el.innerHTML = openingMarkup;
-  el.classList.remove("hide");
-  document.body.classList.add("intro-playing");
-  $("#app").inert = true;
-  $("#skip-opening").dataset.action = "skip-opening";
-  introTimer = setTimeout(
-    endIntro,
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 500 : 3100,
-  );
-}
 installLiveController({
   state: () => state,
   modal: () => modalState,
@@ -1992,7 +1953,6 @@ try {
   backendError = error.message;
 }
 navigate();
-endIntro();
 
 function accessPanel(title, allowLogin = true) {
   return `<main class="container" style="max-width:650px;padding-top:65px;padding-bottom:65px"><div class="panel"><div class="eyebrow">YOUR KAUSHIK NURSERY ACCOUNT</div><h1 style="font-size:34px">${esc(title)}</h1><p>${allowLogin ? "Sign in to manage your orders, garden bookings and account details." : "Your account does not have access to this workspace."}</p>${allowLogin ? '<button class="btn btn-primary" data-action="account">Sign in</button>' : '<a href="#home" class="btn btn-outline">Back to the nursery</a>'}</div></main>`;
@@ -2267,6 +2227,9 @@ function updateCatalog() {
   if (count)
     count.textContent = `${catalogProducts().length} products shown${state.catalogMore ? " · more available" : ""}`;
   addPagination();
+  refreshScrollMetrics();
+  disposePageMotion();
+  disposePageMotion = mountScrollMotion();
 }
 async function loadMore(kind) {
   if (kind === "catalog") return fetchCatalog(true);

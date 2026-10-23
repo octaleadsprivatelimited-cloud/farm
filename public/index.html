@@ -13,93 +13,11 @@
     <link rel="stylesheet" href="./assets/fonts.css" />
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./storefront.css" />
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <link rel="stylesheet" href="./vendor/lenis.css" />
+    <script defer src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <div
-      id="opening"
-      class="opening"
-      aria-label="A plant unfolds to welcome you"
-    >
-      <button class="intro-skip" id="skip-opening">
-        Skip introduction <span>↗</span>
-      </button>
-      <div class="opening-inner">
-        <svg
-          class="growing-plant"
-          viewBox="0 0 240 250"
-          fill="none"
-          aria-hidden="true"
-        >
-          <defs>
-            <linearGradient id="leafLight" x1="0" x2="1" y1="0" y2="1">
-              <stop stop-color="#b8d693" />
-              <stop offset=".6" stop-color="#79a96b" />
-              <stop offset="1" stop-color="#436d46" />
-            </linearGradient>
-            <linearGradient id="leafDark">
-              <stop stop-color="#588b59" />
-              <stop offset="1" stop-color="#a9cd89" />
-            </linearGradient>
-          </defs>
-          <ellipse
-            cx="120"
-            cy="234"
-            rx="53"
-            ry="5"
-            fill="#b8d693"
-            opacity=".13"
-          />
-          <path
-            class="plant-stem"
-            d="M120 229C115 173 128 111 119 52"
-            stroke="#abc987"
-            stroke-width="3"
-            stroke-linecap="round"
-          />
-          <g class="unfold-leaf leaf-a">
-            <path
-              d="M119 179C51 190 31 154 34 125C80 120 112 137 119 179Z"
-              fill="url(#leafLight)"
-            />
-            <path d="M119 179L45 134" stroke="#d1e4ae" opacity=".65" />
-          </g>
-          <g class="unfold-leaf leaf-b">
-            <path
-              d="M120 157C174 175 206 145 209 113C162 105 130 123 120 157Z"
-              fill="url(#leafDark)"
-            />
-            <path d="M120 157L198 122" stroke="#cee3ac" opacity=".65" />
-          </g>
-          <g class="unfold-leaf leaf-c">
-            <path
-              d="M121 123C71 128 54 99 59 77C97 75 119 92 121 123Z"
-              fill="url(#leafDark)"
-            />
-            <path d="M121 123L69 86" stroke="#d1e4ae" opacity=".65" />
-          </g>
-          <g class="unfold-leaf leaf-d">
-            <path
-              d="M121 99C169 109 187 78 182 53C150 51 127 68 121 99Z"
-              fill="url(#leafLight)"
-            />
-            <path d="M121 99L173 62" stroke="#d1e4ae" opacity=".65" />
-          </g>
-          <g class="unfold-leaf leaf-e">
-            <path
-              d="M120 65C94 47 102 22 118 11C140 27 143 46 120 65Z"
-              fill="url(#leafLight)"
-            />
-            <path d="M120 65L119 23" stroke="#d1e4ae" opacity=".65" />
-          </g>
-        </svg>
-        <p class="opening-eyebrow">SOMETHING BEAUTIFUL IS GROWING</p>
-        <div class="opening-name">Kaushik <i>Nursery.</i></div>
-        <span class="opening-line"></span>
-      </div>
-      <span class="opening-footer">A little greener. A lot better.</span>
-    </div>
     <div id="app"></div>
     <div id="modal-root"></div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
