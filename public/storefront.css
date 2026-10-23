@@ -102,7 +102,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .collection-photo > span { position: absolute; display: grid; place-items: center; width: 26px; height: 26px; bottom: 0; right: 6px; border: 3px solid white; background: #eff2e9; border-radius: 50%; }
 .collection-photo .icon { width: 11px; height: 11px; }
 .collection-card > strong { display: block; font-size: 12px; font-weight: 500; }
-.collection-card > small { display: block; margin-top: 5px; color: #727b69; font-size: 9px; }
 .featured-services { padding-top: 25px; padding-bottom: 55px; }
 .service-grid { gap: 23px; }
 .service-card { border: 1px solid #e6e9df; border-radius: 6px; overflow: hidden; background: white; }
@@ -337,7 +336,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .collection-photo { max-width: 111px; padding: 4px; margin-bottom: 11px; }
   .collection-photo > span { width: 22px; height: 22px; right: 1px; }
   .collection-card > strong { font-size: 10px; }
-  .collection-card > small { font-size: 7px; line-height: 1.5; margin-top: 4px; }
   .featured-services { padding-top: 22px; padding-bottom: 34px; }
   .service-grid { grid-template-columns: 1fr; gap: 19px; }
   .service-photo { height: 215px; }
