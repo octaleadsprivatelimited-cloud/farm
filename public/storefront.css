@@ -99,8 +99,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .collection-photo > img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .collection-card:nth-child(4) .collection-photo img { object-position: center 56%; }
 .collection-card:hover .collection-photo { transform: translateY(-5px); border-color: #819768; }
-.collection-photo > span { position: absolute; display: grid; place-items: center; width: 26px; height: 26px; bottom: 0; right: 6px; border: 3px solid white; background: #eff2e9; border-radius: 50%; }
-.collection-photo .icon { width: 11px; height: 11px; }
 .collection-card > strong { display: block; font-size: 12px; font-weight: 500; }
 .featured-services { padding-top: 25px; padding-bottom: 55px; }
 .service-grid { gap: 23px; }
@@ -334,7 +332,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   .view-link { font-size: 9px; padding: 0; gap: 8px; }
   .collection-grid { gap: 23px 14px; }
   .collection-photo { max-width: 111px; padding: 4px; margin-bottom: 11px; }
-  .collection-photo > span { width: 22px; height: 22px; right: 1px; }
   .collection-card > strong { font-size: 10px; }
   .featured-services { padding-top: 22px; padding-bottom: 34px; }
   .service-grid { grid-template-columns: 1fr; gap: 19px; }
@@ -566,7 +563,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: #64a
 .compact-title h2 { color: #0b4c31; font-weight: 600; }
 .view-link { color: #167c3c; font-weight: 700; }
 .collection-photo { border: 2px solid #cae5a8; background: #f2f9e7; }
-.collection-photo > span { background: #d6f586; color: #16492c; }
 .collection-card > strong { color: #154e2c; font-weight: 700; }
 .collection-card:hover .collection-photo { border-color: #4b9a45; box-shadow: 0 7px 18px #2b6e2f15; }
 .service-card { border-color: #d6e8c7; box-shadow: 0 4px 14px #174c2708; }
@@ -634,4 +630,17 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline-color: #64a
   .nursery-benefits,
   .hero-controls .hero-arrow,
   .hero-controls .hero-pause { display: none; }
+}
+
+/* Compact commerce header: 80% of the previous vertical dimensions. */
+.store-chrome .header-inner { height: 77.6px; gap: 36.8px; }
+.store-chrome .header-search { height: 34.4px; }
+.store-chrome .main-nav { min-height: 39.2px; }
+.store-chrome .main-nav > a, .store-chrome .main-nav > button { padding-block: 11.2px; }
+@media (max-width: 1150px) { .store-chrome .header-inner { gap: 20px; } }
+@media (max-width: 1100px) and (min-width: 901px) { .store-chrome .header-inner { gap: 14.4px; } }
+@media (max-width: 850px) { .store-chrome .header-inner { height: 68px; gap: 17.6px; } }
+@media (max-width: 600px) {
+  .store-chrome .header-inner { height: auto; min-height: 88px; padding-block: 5.5px; gap: 9.6px; }
+  .store-chrome .header-search { height: 30.4px; }
 }

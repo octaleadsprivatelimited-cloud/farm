@@ -266,7 +266,7 @@ function home() {
           `<div>${icon(i)}<span><strong>${t}</strong><small>${d}</small></span></div>`,
       )
       .join("")}</section>
-    <section class="container collection-section" aria-label="Plant and garden service categories"><div class="collection-grid">${categories.map(([name, img, kind, id]) => `<button class="collection-card" data-action="${kind === "service" ? "book" : "browse-category"}" data-id="${id}"><span class="collection-photo"><img src="${asset(img)}" alt="${esc(name)}" loading="lazy"><span>${icon("up")}</span></span><strong>${name}</strong></button>`).join("")}</div></section>
+    <section class="container collection-section" aria-label="Plant and garden service categories"><div class="collection-grid">${categories.map(([name, img, kind, id]) => `<button class="collection-card" data-action="${kind === "service" ? "book" : "browse-category"}" data-id="${id}"><span class="collection-photo"><img src="${asset(img)}" alt="${esc(name)}" loading="lazy"></span><strong>${name}</strong></button>`).join("")}</div></section>
     <section id="garden-services" class="container featured-services"><div class="section-title compact-title"><div><span class="section-kicker">YOUR GARDEN, IN GOOD HANDS</span><h2>A little vision. A little expert care.</h2><p>Meet the people who turn green dreams into everyday spaces.</p></div><a href="#services" class="view-link">View all services ${icon("arrow")}</a></div><div class="service-grid">${state.services
       .filter((s) => state.liveServiceIds?.includes(s.id))
       .slice(0, 3)
